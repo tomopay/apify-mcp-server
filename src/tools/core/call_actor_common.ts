@@ -1,7 +1,7 @@
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { z } from 'zod';
 
-import { ApifyClient, createApifyClientWithSkyfireSupport } from '../../apify_client.js';
+import { ApifyClient, createApifyClientWithPaymentSupport } from '../../apify_client.js';
 import {
     CALL_ACTOR_MCP_MISSING_TOOL_NAME_MSG,
     HelperTools,
@@ -186,7 +186,7 @@ export async function resolveAndValidateActor(params: {
     toolArgs: InternalToolArgs;
 }): Promise<{ error: object } | { actor: Awaited<ReturnType<typeof getActorsAsTools>>[0] }> {
     const { actorName, input, toolArgs } = params;
-    const apifyClient = createApifyClientWithSkyfireSupport(toolArgs.apifyMcpServer, toolArgs.args, toolArgs.apifyToken);
+    const apifyClient = createApifyClientWithPaymentSupport(toolArgs.apifyMcpServer, toolArgs.args, toolArgs.apifyToken);
 
     const [actor] = await getActorsAsTools([actorName], apifyClient, { mcpSessionId: toolArgs.mcpSessionId });
 
@@ -255,7 +255,7 @@ export async function callActorPreExecute(toolArgs: InternalToolArgs): Promise<
     const isActorMcpServer = mcpServerUrlOrFalse && typeof mcpServerUrlOrFalse === 'string';
 
     // Standby Actors (MCPs) are not supported in Skyfire mode
-    if (isActorMcpServer && apifyMcpServer.options.skyfireMode) {
+    if (isActorMcpServer && apifyMcpServer.options.paymentProvider) {
         return {
             earlyResponse: buildMCPResponse({
                 texts: [`This Actor (${parsed.actor}) is an MCP server and cannot be accessed using a Skyfire token. To use this Actor, please provide a valid Apify token instead of a Skyfire token.`],

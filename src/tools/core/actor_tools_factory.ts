@@ -121,7 +121,7 @@ Actor description: ${definition.description}`;
             // reuse the common output schema
             outputSchema: callActorOutputSchema,
             ajvValidate,
-            requiresSkyfirePayId: true,
+            paymentRequired: true,
             memoryMbytes,
             // openai/* and ui keys are stripped in non-openai mode by stripWidgetMeta() in src/utils/tools.ts
             _meta: {

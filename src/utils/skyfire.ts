@@ -14,7 +14,7 @@ export function validateSkyfirePayId(
     apifyMcpServer: ActorsMcpServer,
     args: Record<string, unknown>,
 ): ReturnType<typeof buildMCPResponse> | null {
-    if (apifyMcpServer.options.skyfireMode && args['skyfire-pay-id'] === undefined) {
+    if (apifyMcpServer.options.paymentProvider && args['skyfire-pay-id'] === undefined) {
         return buildMCPResponse({
             texts: [SKYFIRE_TOOL_INSTRUCTIONS],
         });

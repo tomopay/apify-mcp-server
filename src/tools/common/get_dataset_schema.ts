@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { createApifyClientWithSkyfireSupport } from '../../apify_client.js';
+import { createApifyClientWithPaymentSupport } from '../../apify_client.js';
 import { HelperTools, TOOL_STATUS } from '../../const.js';
 import type { InternalToolArgs, ToolEntry, ToolInputSchema } from '../../types.js';
 import { compileSchema } from '../../utils/ajv.js';
@@ -43,7 +43,7 @@ USAGE EXAMPLES:
      * Allow additional properties for Skyfire mode to pass `skyfire-pay-id`.
      */
     ajvValidate: compileSchema({ ...z.toJSONSchema(getDatasetSchemaArgs), additionalProperties: true }),
-    requiresSkyfirePayId: true,
+    paymentRequired: true,
     annotations: {
         title: 'Get dataset schema',
         readOnlyHint: true,
@@ -55,7 +55,7 @@ USAGE EXAMPLES:
         const { args, apifyToken, apifyMcpServer } = toolArgs;
         const parsed = getDatasetSchemaArgs.parse(args);
 
-        const client = createApifyClientWithSkyfireSupport(apifyMcpServer, args, apifyToken);
+        const client = createApifyClientWithPaymentSupport(apifyMcpServer, args, apifyToken);
 
         // Get dataset items
         const datasetResponse = await client.dataset(parsed.datasetId).listItems({

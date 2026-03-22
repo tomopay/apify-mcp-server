@@ -34,7 +34,7 @@ import type { ValidateFunction } from 'ajv';
 import log from '@apify/log';
 import { parseBooleanOrNull } from '@apify/utilities';
 
-import { ApifyClient, createApifyClientWithSkyfireSupport } from '../apify_client.js';
+import { ApifyClient, createApifyClientWithPaymentSupport } from '../apify_client.js';
 import {
     ALLOWED_TASK_TOOL_EXECUTION_MODES,
     APIFY_MCP_URL,
@@ -68,13 +68,12 @@ import type {
     ToolEntry,
     ToolStatus,
 } from '../types.js';
-import { logHttpError, redactSkyfirePayId } from '../utils/logging.js';
+import { logHttpError } from '../utils/logging.js';
 import { buildMCPResponse } from '../utils/mcp.js';
 import { createProgressTracker } from '../utils/progress.js';
 import { getServerInstructions } from '../utils/server-instructions/index.js';
-import { validateSkyfirePayId } from '../utils/skyfire.js';
 import { getToolStatusFromError } from '../utils/tool_status.js';
-import { applySkyfireAugmentation, getToolPublicFieldOnly } from '../utils/tools.js';
+import { getToolPublicFieldOnly } from '../utils/tools.js';
 import { getUserIdFromTokenCached } from '../utils/userid_cache.js';
 import { getPackageVersion } from '../utils/version.js';
 import { connectMCPClient } from './client.js';
@@ -180,6 +179,11 @@ export class ActorsMcpServer {
          */
         this.setupResourceHandlers();
         this.setupTaskHandlers();
+    }
+
+    /** Redact payment-sensitive fields from args for logging. */
+    private redactPaymentArgs(args: unknown): unknown {
+        return this.options.paymentProvider ? this.options.paymentProvider.redactArgs(args) : args;
     }
 
     /**
@@ -379,7 +383,7 @@ export class ActorsMcpServer {
      */
     public upsertTools(tools: ToolEntry[], shouldNotifyToolsChangedHandler = false) {
         for (const tool of tools) {
-            const stored = this.options.skyfireMode ? applySkyfireAugmentation(tool) : tool;
+            const stored = this.options.paymentProvider ? this.options.paymentProvider.augmentTool(tool) : tool;
             this.tools.set(stored.name, stored);
         }
         if (shouldNotifyToolsChangedHandler) this.notifyToolsChangedHandler();
@@ -444,7 +448,7 @@ export class ActorsMcpServer {
 
     private setupResourceHandlers(): void {
         const resourceService = createResourceService({
-            skyfireMode: this.options.skyfireMode,
+            paymentProvider: this.options.paymentProvider,
             mode: this.serverMode,
             getAvailableWidgets: () => this.availableWidgets,
         });
@@ -632,7 +636,7 @@ export class ActorsMcpServer {
             }
 
             // Validate token
-            if (!apifyToken && !this.options.skyfireMode && !this.options.allowUnauthMode) {
+            if (!apifyToken && !this.options.paymentProvider?.allowsUnauthenticated && !this.options.allowUnauthMode) {
                 const msg = `Apify API token is required but was not provided.
 Please set the APIFY_TOKEN environment variable or pass it as a parameter in the request header as Authorization Bearer <token>.
 You can obtain your Apify token from https://console.apify.com/account/integrations.`;
@@ -748,11 +752,11 @@ Please remove the "task" parameter from the tool call request or use a different
 
             try {
                 // Centralized skyfire validation for tools that require it
-                if (tool.requiresSkyfirePayId) {
-                    const skyfireError = validateSkyfirePayId(this, args);
-                    if (skyfireError) {
+                if (tool.paymentRequired && this.options.paymentProvider) {
+                    const paymentError = this.options.paymentProvider.validatePayment(args);
+                    if (paymentError) {
                         toolStatus = TOOL_STATUS.SOFT_FAIL;
-                        return skyfireError;
+                        return buildMCPResponse({ texts: [paymentError] });
                     }
                 }
 
@@ -763,7 +767,7 @@ Please remove the "task" parameter from the tool call request or use a different
                         ? createProgressTracker(progressToken, extra.sendNotification)
                         : null;
 
-                    log.info('Calling internal tool', { name: tool.name, mcpSessionId, input: redactSkyfirePayId(args) });
+                    log.info('Calling internal tool', { name: tool.name, mcpSessionId, input: this.redactPaymentArgs(args) });
                     const res = await tool.call({
                         args,
                         extra,
@@ -823,7 +827,12 @@ Please verify the server URL is correct and accessible, and ensure you have a va
                             }
                         }
 
-                        log.info('Calling Actor-MCP', { actorId: tool.actorId, toolName: tool.originToolName, mcpSessionId, input: redactSkyfirePayId(args) });
+                        log.info('Calling Actor-MCP', {
+                            actorId: tool.actorId,
+                            toolName: tool.originToolName,
+                            mcpSessionId,
+                            input: this.redactPaymentArgs(args),
+                        });
                         const res = await client.callTool({
                             name: tool.originToolName,
                             arguments: args,
@@ -855,11 +864,11 @@ Please verify the server URL is correct and accessible, and ensure you have a va
                 // Handle actor tool
                 if (tool.type === 'actor') {
                     const progressTracker = createProgressTracker(progressToken, extra.sendNotification);
-                    const { 'skyfire-pay-id': _skyfirePayId, ...actorArgs } = args as Record<string, unknown>;
-                    const apifyClient = createApifyClientWithSkyfireSupport(this, args, apifyToken);
+                    const actorArgs = this.options.paymentProvider ? this.options.paymentProvider.stripPaymentArgs(args) : args;
+                    const apifyClient = createApifyClientWithPaymentSupport(this, args, apifyToken);
 
                     try {
-                        log.info('Calling Actor', { actorName: tool.actorFullName, mcpSessionId, input: redactSkyfirePayId(actorArgs) });
+                        log.info('Calling Actor', { actorName: tool.actorFullName, mcpSessionId, input: this.redactPaymentArgs(actorArgs) });
                         const executorResult = await this.actorExecutor.executeActorTool({
                             actorFullName: tool.actorFullName,
                             input: actorArgs,
@@ -1005,10 +1014,10 @@ Please verify the tool name and ensure the tool is properly registered.`;
             let result: Record<string, unknown> = {};
 
             // Centralized skyfire validation for tools that require it
-            if (tool.requiresSkyfirePayId) {
-                const skyfireError = validateSkyfirePayId(this, args);
-                if (skyfireError) {
-                    result = skyfireError;
+            if (tool.paymentRequired && this.options.paymentProvider) {
+                const paymentError = this.options.paymentProvider.validatePayment(args);
+                if (paymentError) {
+                    result = buildMCPResponse({ texts: [paymentError] });
                     toolStatus = TOOL_STATUS.SOFT_FAIL;
                 }
             }
@@ -1025,7 +1034,7 @@ Please verify the tool name and ensure the tool is properly registered.`;
                 const progressTracker = createProgressTracker(progressToken, extra.sendNotification, taskId, onStatusMessage);
 
                 try {
-                    log.info('Calling internal tool for task', { taskId, name: tool.name, mcpSessionId, input: redactSkyfirePayId(args) });
+                    log.info('Calling internal tool for task', { taskId, name: tool.name, mcpSessionId, input: this.redactPaymentArgs(args) });
                     const res = await tool.call({
                         args,
                         extra,
@@ -1059,11 +1068,11 @@ Please verify the tool name and ensure the tool is properly registered.`;
             // Handle actor tool execution in task mode
             if (toolStatus === TOOL_STATUS.SUCCEEDED && tool.type === 'actor') {
                 const progressTracker = createProgressTracker(progressToken, extra.sendNotification, taskId, onStatusMessage);
-                const { 'skyfire-pay-id': _skyfirePayId, ...actorArgs } = args as Record<string, unknown>;
-                const apifyClient = createApifyClientWithSkyfireSupport(this, args, apifyToken);
+                const actorArgs = this.options.paymentProvider ? this.options.paymentProvider.stripPaymentArgs(args) : args;
+                const apifyClient = createApifyClientWithPaymentSupport(this, args, apifyToken);
 
                 try {
-                    log.info('Calling Actor for task', { taskId, actorName: tool.actorFullName, mcpSessionId, input: redactSkyfirePayId(actorArgs) });
+                    log.info('Calling Actor for task', { taskId, actorName: tool.actorFullName, mcpSessionId, input: this.redactPaymentArgs(actorArgs) });
                     const executorResult = await this.actorExecutor.executeActorTool({
                         actorFullName: tool.actorFullName,
                         input: actorArgs,

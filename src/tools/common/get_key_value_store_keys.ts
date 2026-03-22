@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { createApifyClientWithSkyfireSupport } from '../../apify_client.js';
+import { createApifyClientWithPaymentSupport } from '../../apify_client.js';
 import { HelperTools } from '../../const.js';
 import type { InternalToolArgs, ToolEntry, ToolInputSchema } from '../../types.js';
 import { compileSchema } from '../../utils/ajv.js';
@@ -39,7 +39,7 @@ USAGE EXAMPLES:
      * Allow additional properties for Skyfire mode to pass `skyfire-pay-id`.
      */
     ajvValidate: compileSchema({ ...z.toJSONSchema(getKeyValueStoreKeysArgs), additionalProperties: true }),
-    requiresSkyfirePayId: true,
+    paymentRequired: true,
     annotations: {
         title: 'Get key-value store keys',
         readOnlyHint: true,
@@ -51,7 +51,7 @@ USAGE EXAMPLES:
         const { args, apifyToken, apifyMcpServer } = toolArgs;
         const parsed = getKeyValueStoreKeysArgs.parse(args);
 
-        const client = createApifyClientWithSkyfireSupport(apifyMcpServer, args, apifyToken);
+        const client = createApifyClientWithPaymentSupport(apifyMcpServer, args, apifyToken);
         const keys = await client.keyValueStore(parsed.storeId).listKeys({
             exclusiveStartKey: parsed.exclusiveStartKey,
             limit: parsed.limit,
