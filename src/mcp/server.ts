@@ -34,7 +34,7 @@ import type { ValidateFunction } from 'ajv';
 import log from '@apify/log';
 import { parseBooleanOrNull } from '@apify/utilities';
 
-import { ApifyClient, createApifyClientWithPaymentSupport } from '../apify_client.js';
+import { ApifyClient } from '../apify_client.js';
 import {
     ALLOWED_TASK_TOOL_EXECUTION_MODES,
     APIFY_MCP_URL,
@@ -45,6 +45,7 @@ import {
     SERVER_VERSION,
     TOOL_STATUS,
 } from '../const.js';
+import { preparePayment } from '../payments/prepare.js';
 import { prompts } from '../prompts/index.js';
 import { createResourceService } from '../resources/resource_service.js';
 import type { AvailableWidget } from '../resources/widgets.js';
@@ -179,11 +180,6 @@ export class ActorsMcpServer {
          */
         this.setupResourceHandlers();
         this.setupTaskHandlers();
-    }
-
-    /** Redact payment-sensitive fields from args for logging. */
-    private redactPaymentArgs(args: unknown): unknown {
-        return this.options.paymentProvider ? this.options.paymentProvider.redactArgs(args) : args;
     }
 
     /**
@@ -383,7 +379,7 @@ export class ActorsMcpServer {
      */
     public upsertTools(tools: ToolEntry[], shouldNotifyToolsChangedHandler = false) {
         for (const tool of tools) {
-            const stored = this.options.paymentProvider ? this.options.paymentProvider.augmentTool(tool) : tool;
+            const stored = this.options.paymentProvider ? this.options.paymentProvider.decorateToolSchema(tool) : tool;
             this.tools.set(stored.name, stored);
         }
         if (shouldNotifyToolsChangedHandler) this.notifyToolsChangedHandler();
@@ -687,8 +683,18 @@ Please provide the required arguments for this tool. Check the tool's input sche
             // Decode dot property names in arguments before validation,
             // since validation expects the original, non-encoded property names.
             args = decodeDotPropertyNames(args as Record<string, unknown>) as Record<string, unknown>;
-            log.debug('Validate arguments for tool', { toolName: tool.name, mcpSessionId, input: args });
-            if (!tool.ajvValidate(args)) {
+
+            // Centralize all payment processing: validate, strip payment fields, create client.
+            // Must run before ajv validation so cleanArgs doesn't contain provider-specific fields.
+            const payment = preparePayment({
+                provider: this.options.paymentProvider,
+                tool,
+                args: args as Record<string, unknown>,
+                apifyToken,
+            });
+
+            log.debug('Validate arguments for tool', { toolName: tool.name, mcpSessionId, input: payment.logArgs });
+            if (!tool.ajvValidate(payment.cleanArgs)) {
                 const errors = tool?.ajvValidate.errors || [];
                 const errorMessages = errors.map((e: { message?: string; instancePath?: string }) => `${e.instancePath || 'root'}: ${e.message || 'validation error'}`).join('; ');
                 const msg = `Invalid arguments for tool "${tool.name}".
@@ -732,7 +738,10 @@ Please remove the "task" parameter from the tool call request or use a different
                     await this.executeToolAndUpdateTask({
                         taskId: task.taskId,
                         tool,
-                        args,
+                        cleanArgs: payment.cleanArgs,
+                        logArgs: payment.logArgs,
+                        paymentError: payment.error,
+                        apifyClient: payment.client,
                         apifyToken,
                         progressToken,
                         extra,
@@ -751,13 +760,10 @@ Please remove the "task" parameter from the tool call request or use a different
             let toolStatus: ToolStatus = TOOL_STATUS.SUCCEEDED;
 
             try {
-                // Centralized skyfire validation for tools that require it
-                if (tool.paymentRequired && this.options.paymentProvider) {
-                    const paymentError = this.options.paymentProvider.validatePayment(args);
-                    if (paymentError) {
-                        toolStatus = TOOL_STATUS.SOFT_FAIL;
-                        return buildMCPResponse({ texts: [paymentError] });
-                    }
+                // Check payment validation (already computed by preparePayment)
+                if (payment.error) {
+                    toolStatus = TOOL_STATUS.SOFT_FAIL;
+                    return buildMCPResponse({ texts: [payment.error] });
                 }
 
                 // Handle internal tool
@@ -767,13 +773,14 @@ Please remove the "task" parameter from the tool call request or use a different
                         ? createProgressTracker(progressToken, extra.sendNotification)
                         : null;
 
-                    log.info('Calling internal tool', { name: tool.name, mcpSessionId, input: this.redactPaymentArgs(args) });
+                    log.info('Calling internal tool', { name: tool.name, mcpSessionId, input: payment.logArgs });
                     const res = await tool.call({
-                        args,
+                        args: payment.cleanArgs,
                         extra,
                         apifyMcpServer: this,
                         mcpServer: this.server,
                         apifyToken,
+                        apifyClient: payment.client,
                         userRentedActorIds,
                         progressTracker,
                         mcpSessionId,
@@ -831,11 +838,11 @@ Please verify the server URL is correct and accessible, and ensure you have a va
                             actorId: tool.actorId,
                             toolName: tool.originToolName,
                             mcpSessionId,
-                            input: this.redactPaymentArgs(args),
+                            input: payment.logArgs,
                         });
                         const res = await client.callTool({
                             name: tool.originToolName,
-                            arguments: args,
+                            arguments: payment.cleanArgs,
                             _meta: {
                                 progressToken,
                             },
@@ -864,15 +871,13 @@ Please verify the server URL is correct and accessible, and ensure you have a va
                 // Handle actor tool
                 if (tool.type === 'actor') {
                     const progressTracker = createProgressTracker(progressToken, extra.sendNotification);
-                    const actorArgs = this.options.paymentProvider ? this.options.paymentProvider.stripPaymentArgs(args) : args;
-                    const apifyClient = createApifyClientWithPaymentSupport(this, args, apifyToken);
 
                     try {
-                        log.info('Calling Actor', { actorName: tool.actorFullName, mcpSessionId, input: this.redactPaymentArgs(actorArgs) });
+                        log.info('Calling Actor', { actorName: tool.actorFullName, mcpSessionId, input: payment.logArgs });
                         const executorResult = await this.actorExecutor.executeActorTool({
                             actorFullName: tool.actorFullName,
-                            input: actorArgs,
-                            apifyClient,
+                            input: payment.cleanArgs,
+                            apifyClient: payment.client,
                             callOptions: { memory: tool.memoryMbytes },
                             progressTracker,
                             abortSignal: extra.signal,
@@ -969,14 +974,17 @@ Please verify the tool name and ensure the tool is properly registered.`;
     private async executeToolAndUpdateTask(params: {
         taskId: string;
         tool: ToolEntry;
-        args: Record<string, unknown>;
+        cleanArgs: Record<string, unknown>;
+        logArgs: unknown;
+        paymentError: string | null;
+        apifyClient: ApifyClient;
         apifyToken: string;
         progressToken: string | number | undefined;
         extra: RequestHandlerExtra<Request, Notification>;
         mcpSessionId: string | undefined;
         userRentedActorIds?: string[];
     }): Promise<void> {
-        const { taskId, tool, args, apifyToken, progressToken, extra, mcpSessionId, userRentedActorIds } = params;
+        const { taskId, tool, cleanArgs, logArgs, paymentError, apifyClient, apifyToken, progressToken, extra, mcpSessionId, userRentedActorIds } = params;
         let toolStatus: ToolStatus = TOOL_STATUS.SUCCEEDED;
         const startTime = Date.now();
 
@@ -1013,13 +1021,10 @@ Please verify the tool name and ensure the tool is properly registered.`;
             // Execute the tool and get the result
             let result: Record<string, unknown> = {};
 
-            // Centralized skyfire validation for tools that require it
-            if (tool.paymentRequired && this.options.paymentProvider) {
-                const paymentError = this.options.paymentProvider.validatePayment(args);
-                if (paymentError) {
-                    result = buildMCPResponse({ texts: [paymentError] });
-                    toolStatus = TOOL_STATUS.SOFT_FAIL;
-                }
+            // Check payment validation (already computed by preparePayment in the caller)
+            if (paymentError) {
+                result = buildMCPResponse({ texts: [paymentError] });
+                toolStatus = TOOL_STATUS.SOFT_FAIL;
             }
 
             // Callback to propagate Actor run statusMessage into the task store.
@@ -1034,13 +1039,14 @@ Please verify the tool name and ensure the tool is properly registered.`;
                 const progressTracker = createProgressTracker(progressToken, extra.sendNotification, taskId, onStatusMessage);
 
                 try {
-                    log.info('Calling internal tool for task', { taskId, name: tool.name, mcpSessionId, input: this.redactPaymentArgs(args) });
+                    log.info('Calling internal tool for task', { taskId, name: tool.name, mcpSessionId, input: logArgs });
                     const res = await tool.call({
-                        args,
+                        args: cleanArgs,
                         extra,
                         apifyMcpServer: this,
                         mcpServer: this.server,
                         apifyToken,
+                        apifyClient,
                         userRentedActorIds,
                         progressTracker,
                         mcpSessionId,
@@ -1068,14 +1074,12 @@ Please verify the tool name and ensure the tool is properly registered.`;
             // Handle actor tool execution in task mode
             if (toolStatus === TOOL_STATUS.SUCCEEDED && tool.type === 'actor') {
                 const progressTracker = createProgressTracker(progressToken, extra.sendNotification, taskId, onStatusMessage);
-                const actorArgs = this.options.paymentProvider ? this.options.paymentProvider.stripPaymentArgs(args) : args;
-                const apifyClient = createApifyClientWithPaymentSupport(this, args, apifyToken);
 
                 try {
-                    log.info('Calling Actor for task', { taskId, actorName: tool.actorFullName, mcpSessionId, input: this.redactPaymentArgs(actorArgs) });
+                    log.info('Calling Actor for task', { taskId, actorName: tool.actorFullName, mcpSessionId, input: logArgs });
                     const executorResult = await this.actorExecutor.executeActorTool({
                         actorFullName: tool.actorFullName,
-                        input: actorArgs,
+                        input: cleanArgs,
                         apifyClient,
                         callOptions: { memory: tool.memoryMbytes },
                         progressTracker,

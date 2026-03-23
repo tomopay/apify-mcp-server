@@ -120,7 +120,7 @@ export type ActorTool = ToolBase & {
  * Contains both the tool arguments and server references.
  */
 export type InternalToolArgs = {
-    /** Arguments passed to the tool */
+    /** Arguments passed to the tool (payment fields already stripped by the server) */
     args: Record<string, unknown>;
     /** Extra data given to request handlers.
      *
@@ -135,6 +135,8 @@ export type InternalToolArgs = {
     mcpServer: Server;
     /** Apify API token */
     apifyToken: string;
+    /** ApifyClient pre-configured with payment headers (if applicable) or standard token. */
+    apifyClient: ApifyClient;
     /** List of Actor IDs that the user has rented */
     userRentedActorIds?: string[];
     /** Optional progress tracker for long running internal tools, like call-actor */
@@ -358,7 +360,7 @@ export type DatasetItem = Record<number | string, unknown>;
 /**
  * Apify token type.
  *
- * Can be null or undefined in the case of Skyfire requests.
+ * Can be null or undefined when a payment provider allows unauthenticated access.
  */
 export type ApifyToken = string | null | undefined;
 
@@ -432,9 +434,9 @@ export function parseUiMode(value: string | null | undefined): UiMode | undefine
 export type ActorExecutionParams = {
     /** Full name of the Actor (e.g., "apify/rag-web-browser") */
     actorFullName: string;
-    /** Input to pass to the Actor (skyfire-pay-id already stripped) */
+    /** Input to pass to the Actor (payment fields already stripped) */
     input: Record<string, unknown>;
-    /** Apify client (may be Skyfire-aware) */
+    /** Apify client (may include payment headers) */
     apifyClient: ApifyClient;
     /** Call options (memory, timeout) */
     callOptions: { memory?: number; timeout?: number };

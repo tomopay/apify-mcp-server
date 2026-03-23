@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-import { createApifyClientWithPaymentSupport } from '../../apify_client.js';
 import { HelperTools } from '../../const.js';
 import type { InternalToolArgs, ToolEntry, ToolInputSchema } from '../../types.js';
 import { compileSchema } from '../../utils/ajv.js';
@@ -30,10 +29,7 @@ USAGE EXAMPLES:
 - user_input: Get record INPUT from store abc123
 - user_input: Get record data.json from store username~my-store`,
     inputSchema: z.toJSONSchema(getKeyValueStoreRecordArgs) as ToolInputSchema,
-    /**
-     * Allow additional properties for Skyfire mode to pass `skyfire-pay-id`.
-     */
-    ajvValidate: compileSchema({ ...z.toJSONSchema(getKeyValueStoreRecordArgs), additionalProperties: true }),
+    ajvValidate: compileSchema(z.toJSONSchema(getKeyValueStoreRecordArgs)),
     paymentRequired: true,
     annotations: {
         title: 'Get key-value store record',
@@ -43,10 +39,8 @@ USAGE EXAMPLES:
         openWorldHint: false,
     },
     call: async (toolArgs: InternalToolArgs) => {
-        const { args, apifyToken, apifyMcpServer } = toolArgs;
+        const { args, apifyClient: client } = toolArgs;
         const parsed = getKeyValueStoreRecordArgs.parse(args);
-
-        const client = createApifyClientWithPaymentSupport(apifyMcpServer, args, apifyToken);
         const record = await client.keyValueStore(parsed.storeId).getRecord(parsed.recordKey);
         return { content: [{ type: 'text', text: `\`\`\`json\n${JSON.stringify(record)}\n\`\`\`` }] };
     },

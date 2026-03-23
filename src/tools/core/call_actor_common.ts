@@ -1,7 +1,7 @@
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { z } from 'zod';
 
-import { ApifyClient, createApifyClientWithPaymentSupport } from '../../apify_client.js';
+import { ApifyClient } from '../../apify_client.js';
 import {
     CALL_ACTOR_MCP_MISSING_TOOL_NAME_MSG,
     HelperTools,
@@ -75,13 +75,8 @@ For MCP server Actors, use format "actorName:toolName" to call a specific tool (
  */
 export const callActorInputSchema = z.toJSONSchema(callActorArgs) as ToolInputSchema;
 
-/**
- * Compiled AJV validator with additional properties allowed (for Skyfire pay-id).
- */
-export const callActorAjvValidate = compileSchema({
-    ...z.toJSONSchema(callActorArgs),
-    additionalProperties: true,
-});
+// Allow additional properties for dynamic Actor input fields passed via the `input` object
+export const callActorAjvValidate = compileSchema({ ...z.toJSONSchema(callActorArgs), additionalProperties: true });
 
 /**
  * Parsed call-actor arguments.
@@ -186,7 +181,7 @@ export async function resolveAndValidateActor(params: {
     toolArgs: InternalToolArgs;
 }): Promise<{ error: object } | { actor: Awaited<ReturnType<typeof getActorsAsTools>>[0] }> {
     const { actorName, input, toolArgs } = params;
-    const apifyClient = createApifyClientWithPaymentSupport(toolArgs.apifyMcpServer, toolArgs.args, toolArgs.apifyToken);
+    const { apifyClient } = toolArgs;
 
     const [actor] = await getActorsAsTools([actorName], apifyClient, { mcpSessionId: toolArgs.mcpSessionId });
 

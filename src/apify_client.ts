@@ -3,13 +3,12 @@ import { ApifyClient as _ApifyClient } from 'apify-client';
 import type { AxiosRequestConfig } from 'axios';
 
 import { USER_AGENT_ORIGIN } from './const.js';
-import type { ActorsMcpServer } from './mcp/server.js';
-import type { ApifyToken } from './types.js';
+import type { PaymentHeaders } from './payments/types.js';
 
 type ExtendedApifyClientOptions = Omit<ApifyClientOptions, 'token'> & {
     token?: string | null | undefined;
     /** Payment headers to forward on outbound API requests (from PaymentProvider.getPaymentHeaders) */
-    paymentHeaders?: Record<string, string>;
+    paymentHeaders?: PaymentHeaders;
 };
 
 /**
@@ -64,29 +63,4 @@ export class ApifyClient extends _ApifyClient {
             requestInterceptors,
         });
     }
-}
-
-/**
- * Creates ApifyClient with appropriate credentials based on payment mode.
- * When a payment provider is active, forwards payment headers via request interceptors;
- * otherwise uses the standard apifyToken.
- *
- * @param apifyMcpServer - The MCP server instance with configuration options
- * @param args - Tool arguments that may contain payment credentials
- * @param apifyToken - Standard Apify token for non-payment mode
- * @returns ApifyClient instance configured for the appropriate mode
- */
-export function createApifyClientWithPaymentSupport(
-    apifyMcpServer: ActorsMcpServer,
-    args: Record<string, unknown>,
-    apifyToken: ApifyToken,
-): ApifyClient {
-    const provider = apifyMcpServer.options.paymentProvider;
-    if (provider) {
-        const paymentHeaders = provider.getPaymentHeaders(args);
-        if (Object.keys(paymentHeaders).length > 0) {
-            return new ApifyClient({ paymentHeaders });
-        }
-    }
-    return new ApifyClient({ token: apifyToken });
 }

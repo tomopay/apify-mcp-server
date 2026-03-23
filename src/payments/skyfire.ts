@@ -5,7 +5,7 @@ import {
 } from '../const.js';
 import type { ToolEntry } from '../types.js';
 import { cloneToolEntry } from '../utils/tools.js';
-import type { PaymentProvider } from './types.js';
+import type { PaymentHeaders, PaymentProvider } from './types.js';
 
 const SKYFIRE_PAY_ID_KEY = 'skyfire-pay-id';
 const REDACTED_VALUE = '[REDACTED]';
@@ -20,7 +20,7 @@ export class SkyfirePaymentProvider implements PaymentProvider {
     readonly id = 'skyfire' as const;
     readonly allowsUnauthenticated = true;
 
-    augmentTool(tool: ToolEntry): ToolEntry {
+    decorateToolSchema(tool: ToolEntry): ToolEntry {
         if (!tool.paymentRequired) return tool;
 
         const cloned = cloneToolEntry(tool);
@@ -46,12 +46,12 @@ export class SkyfirePaymentProvider implements PaymentProvider {
 
     validatePayment(args: Record<string, unknown>): string | null {
         if (args[SKYFIRE_PAY_ID_KEY] === undefined) {
-            return SKYFIRE_TOOL_INSTRUCTIONS;
+            return 'Missing required "skyfire-pay-id" field. Obtain a Skyfire PAY JWT token via the create-pay-token tool and pass it as "skyfire-pay-id".';
         }
         return null;
     }
 
-    getPaymentHeaders(args: Record<string, unknown>): Record<string, string> {
+    getPaymentHeaders(args: Record<string, unknown>): PaymentHeaders {
         const payId = args[SKYFIRE_PAY_ID_KEY];
         if (typeof payId === 'string') {
             return { [SKYFIRE_PAY_ID_KEY]: payId };
@@ -59,7 +59,7 @@ export class SkyfirePaymentProvider implements PaymentProvider {
         return {};
     }
 
-    stripPaymentArgs(args: Record<string, unknown>): Record<string, unknown> {
+    removePaymentFields(args: Record<string, unknown>): Record<string, unknown> {
         const { [SKYFIRE_PAY_ID_KEY]: _removed, ...rest } = args;
         return rest;
     }
@@ -68,7 +68,7 @@ export class SkyfirePaymentProvider implements PaymentProvider {
         return SKYFIRE_README_CONTENT;
     }
 
-    redactArgs(args: unknown): unknown {
+    redactForLogging(args: unknown): unknown {
         if (!isPlainRecord(args) || !(SKYFIRE_PAY_ID_KEY in args)) {
             return args;
         }

@@ -102,6 +102,7 @@ Actor description: ${definition.description}`;
 
         let ajvValidate;
         try {
+            // Allow additional properties for dynamic Actor input fields
             ajvValidate = fixedAjvCompile(ajv, { ...inputSchema, additionalProperties: true });
         } catch (e) {
             log.error('Failed to compile schema', {

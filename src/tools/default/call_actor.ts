@@ -1,6 +1,5 @@
 import log from '@apify/log';
 
-import { createApifyClientWithPaymentSupport } from '../../apify_client.js';
 import { HelperTools } from '../../const.js';
 import { getWidgetConfig, WIDGET_URIS } from '../../resources/widgets.js';
 import type { InternalToolArgs, ToolEntry } from '../../types.js';
@@ -91,7 +90,7 @@ export const defaultCallActor: ToolEntry = Object.freeze({
                 return resolution.error;
             }
 
-            const apifyClient = createApifyClientWithPaymentSupport(toolArgs.apifyMcpServer, toolArgs.args, toolArgs.apifyToken);
+            const { apifyClient } = toolArgs;
 
             // Async mode: start run and return immediately with runId
             if (isAsync) {

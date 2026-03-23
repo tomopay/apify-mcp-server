@@ -53,7 +53,7 @@ export {
     resolvePaymentProvider,
     type PaymentProvider,
     /**
-     * @deprecated Use the server's paymentProvider.redactArgs instead. This will be removed in a future release.
+     * @deprecated Use the server's paymentProvider.redactForLogging instead. This will be removed in a future release.
      */
     redactSkyfirePayId,
 };

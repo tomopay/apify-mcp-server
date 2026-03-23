@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-import { createApifyClientWithPaymentSupport } from '../../apify_client.js';
 import { HelperTools } from '../../const.js';
 import type { InternalToolArgs, ToolEntry, ToolInputSchema } from '../../types.js';
 import { compileSchema } from '../../utils/ajv.js';
@@ -29,10 +28,7 @@ USAGE EXAMPLES:
 - user_input: Abort run y2h7sK3Wc
 - user_input: Gracefully abort run y2h7sK3Wc`,
     inputSchema: z.toJSONSchema(abortRunArgs) as ToolInputSchema,
-    /**
-     * Allow additional properties for Skyfire mode to pass `skyfire-pay-id`.
-     */
-    ajvValidate: compileSchema({ ...z.toJSONSchema(abortRunArgs), additionalProperties: true }),
+    ajvValidate: compileSchema(z.toJSONSchema(abortRunArgs)),
     paymentRequired: true,
     annotations: {
         title: 'Abort Actor run',
@@ -42,10 +38,8 @@ USAGE EXAMPLES:
         openWorldHint: false,
     },
     call: async (toolArgs: InternalToolArgs) => {
-        const { args, apifyToken, apifyMcpServer } = toolArgs;
+        const { args, apifyClient: client } = toolArgs;
         const parsed = abortRunArgs.parse(args);
-
-        const client = createApifyClientWithPaymentSupport(apifyMcpServer, args, apifyToken);
         const v = await client.run(parsed.runId).abort({ gracefully: parsed.gracefully });
         return { content: [{ type: 'text', text: `\`\`\`json\n${JSON.stringify(v)}\n\`\`\`` }] };
     },

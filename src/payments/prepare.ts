@@ -1,0 +1,59 @@
+import { ApifyClient } from '../apify_client.js';
+import type { ApifyToken, ToolEntry } from '../types.js';
+import type { PaymentProvider } from './types.js';
+
+/**
+ * Result of preparing payment context for a tool call.
+ * Centralizes all payment-related processing into a single step.
+ */
+export type PreparePaymentResult = {
+    /** Validation error message if payment is required but credentials are missing; null otherwise. */
+    error: string | null;
+    /** Args with payment-specific fields removed — safe for ajv validation and Actor input. */
+    cleanArgs: Record<string, unknown>;
+    /** Args with sensitive payment fields redacted — safe for logging. */
+    logArgs: unknown;
+    /** ApifyClient configured with payment headers (if applicable) or standard token. */
+    client: ApifyClient;
+};
+
+/**
+ * Prepares payment context for a tool call.
+ *
+ * This helper centralizes all payment processing:
+ * 1. Validates payment credentials (for tools with `paymentRequired: true`)
+ * 2. Strips payment fields from args (for clean ajv validation and Actor input)
+ * 3. Redacts sensitive fields for logging
+ * 4. Creates an ApifyClient with payment headers or standard token
+ *
+ * Call this BEFORE ajv validation so `cleanArgs` can be validated without
+ * the `additionalProperties: true` hack.
+ */
+export function preparePayment(input: {
+    provider: PaymentProvider | undefined;
+    tool: ToolEntry;
+    args: Record<string, unknown>;
+    apifyToken: ApifyToken;
+}): PreparePaymentResult {
+    const { provider, tool, args, apifyToken } = input;
+
+    if (!provider) {
+        return {
+            error: null,
+            cleanArgs: args,
+            logArgs: args,
+            client: new ApifyClient({ token: apifyToken }),
+        };
+    }
+
+    const error = tool.paymentRequired ? provider.validatePayment(args) : null;
+    const cleanArgs = provider.removePaymentFields(args);
+    const logArgs = provider.redactForLogging(args);
+
+    const paymentHeaders = provider.getPaymentHeaders(args);
+    const client = Object.keys(paymentHeaders).length > 0
+        ? new ApifyClient({ paymentHeaders })
+        : new ApifyClient({ token: apifyToken });
+
+    return { error, cleanArgs, logArgs, client };
+}

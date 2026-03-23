@@ -8,10 +8,16 @@ import type { ToolEntry } from '../types.js';
 export type PaymentProviderId = 'skyfire' | 'x402';
 
 /**
+ * Headers to attach to outbound Apify API requests for payment forwarding.
+ * Keys are header names, values are header values.
+ */
+export type PaymentHeaders = Record<string, string>;
+
+/**
  * Interface for payment providers.
  *
  * Each payment scheme implements this interface to handle:
- * - Tool schema augmentation (e.g., adding payment fields to tool definitions)
+ * - Tool schema decoration (e.g., adding payment fields to tool definitions)
  * - Payment credential extraction from tool call arguments
  * - Apify API client configuration for forwarding payment credentials
  * - Payment validation before tool execution
@@ -21,37 +27,37 @@ export type PaymentProvider = {
     readonly id: PaymentProviderId;
 
     /**
-     * Augment a tool definition for this payment scheme.
+     * Decorate a tool definition schema for this payment scheme.
      * Called when tools are registered/upserted in the MCP server.
      *
-     * Only tools with `paymentRequired: true` should be augmented.
+     * Only tools with `paymentRequired: true` should be decorated.
      * Must be idempotent — calling twice on the same tool produces the same result.
      *
-     * @returns The augmented tool (new object), or the original if no augmentation needed.
+     * @returns The decorated tool (new object), or the original if no decoration needed.
      */
-    augmentTool(tool: ToolEntry): ToolEntry;
+    decorateToolSchema(tool: ToolEntry): ToolEntry;
 
     /**
      * Validate that required payment credentials are present in tool call arguments.
      * Called before executing tools with `paymentRequired: true`.
      *
-     * @returns An error message string if validation fails, or null if valid.
+     * @returns A concise error message string if validation fails, or null if valid.
      */
     validatePayment(args: Record<string, unknown>): string | null;
 
     /**
      * Extract payment credentials from tool call arguments and return
-     * request interceptor config for the Apify API client.
+     * headers for the Apify API client.
      *
      * @returns Headers to attach to outbound Apify API requests, or empty object if none.
      */
-    getPaymentHeaders(args: Record<string, unknown>): Record<string, string>;
+    getPaymentHeaders(args: Record<string, unknown>): PaymentHeaders;
 
     /**
-     * Strip payment-specific fields from tool call arguments before passing
+     * Remove payment-specific fields from tool call arguments before passing
      * them as Actor input. Returns cleaned args (new object).
      */
-    stripPaymentArgs(args: Record<string, unknown>): Record<string, unknown>;
+    removePaymentFields(args: Record<string, unknown>): Record<string, unknown>;
 
     /**
      * Whether this payment mode allows unauthenticated access (no Apify token required).
@@ -70,5 +76,5 @@ export type PaymentProvider = {
      * Redact sensitive payment fields from args for logging purposes.
      * @returns A new object with sensitive fields replaced by '[REDACTED]'.
      */
-    redactArgs(args: unknown): unknown;
+    redactForLogging(args: unknown): unknown;
 }
