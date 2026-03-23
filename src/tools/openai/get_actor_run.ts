@@ -13,6 +13,7 @@ import {
 /**
  * OpenAI mode get-actor-run tool.
  * Returns abbreviated text with widget metadata for interactive progress display.
+ * Supports bounded waiting via waitSecs parameter.
  */
 export const openaiGetActorRun: ToolEntry = Object.freeze({
     ...getActorRunMetadata,
@@ -26,6 +27,7 @@ export const openaiGetActorRun: ToolEntry = Object.freeze({
             const fetchResult = await fetchActorRunData({
                 runId: parsed.runId,
                 client,
+                waitSecs: parsed.waitSecs,
                 mcpSessionId,
             });
 
@@ -35,9 +37,9 @@ export const openaiGetActorRun: ToolEntry = Object.freeze({
 
             const { run, structuredContent } = fetchResult.result;
 
-            const statusText = run.status === 'SUCCEEDED' && structuredContent.dataset
-                ? `Actor run ${parsed.runId} completed successfully with ${structuredContent.dataset.totalItemCount} items. A widget has been rendered with the details.`
-                : `Actor run ${parsed.runId} status: ${run.status as string}. A progress widget has been rendered.`;
+            const statusText = run.status === 'SUCCEEDED'
+                ? `Actor run ${parsed.runId} completed successfully. ${structuredContent.hint} A widget has been rendered with the details.`
+                : `Actor run ${parsed.runId} status: ${run.status as string}. ${structuredContent.hint} A progress widget has been rendered.`;
 
             const widgetConfig = getWidgetConfig(WIDGET_URIS.ACTOR_RUN);
             const usageMeta = buildUsageMeta(run);

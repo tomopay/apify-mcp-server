@@ -12,6 +12,7 @@ import {
 /**
  * Default mode get-actor-run tool.
  * Returns full JSON dump of the run without widget metadata.
+ * Supports bounded waiting via waitSecs parameter.
  */
 export const defaultGetActorRun: ToolEntry = Object.freeze({
     ...getActorRunMetadata,
@@ -25,6 +26,7 @@ export const defaultGetActorRun: ToolEntry = Object.freeze({
             const fetchResult = await fetchActorRunData({
                 runId: parsed.runId,
                 client,
+                waitSecs: parsed.waitSecs,
                 mcpSessionId,
             });
 
