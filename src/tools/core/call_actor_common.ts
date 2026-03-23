@@ -1,8 +1,10 @@
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import type { ActorRun } from 'apify-client';
 import { z } from 'zod';
 
 import { ApifyClient, createApifyClientWithSkyfireSupport } from '../../apify_client.js';
 import {
+    ACTOR_RUN_STATUS,
     CALL_ACTOR_MCP_MISSING_TOOL_NAME_MSG,
     HelperTools,
     TOOL_STATUS,
@@ -50,12 +52,6 @@ export const callActorArgs = z.object({
 For MCP server Actors, use format "actorName:toolName" to call a specific tool (e.g., "apify/actors-mcp-server:fetch-apify-docs").`),
     input: z.object({}).passthrough()
         .describe('The input JSON to pass to the Actor. Required.'),
-    async: z.boolean()
-        .optional()
-        .describe(`When true, starts the run and returns immediately with runId. When false or omitted, behavior depends on the active server mode/tool variant. IMPORTANT: use async=true only when the user explicitly asks to run in the background or does not need immediate results.`),
-    previewOutput: z.boolean()
-        .optional()
-        .describe('When true (default): includes preview items. When false: metadata only (reduces context). Use when fetching fields via get-actor-output.'),
     callOptions: z.object({
         memory: z.number()
             .min(128, 'Memory must be at least 128 MB')
@@ -295,4 +291,55 @@ export async function callActorPreExecute(toolArgs: InternalToolArgs): Promise<
     }
 
     return { parsed, baseActorName, mcpToolName };
+}
+
+/**
+ * Returns a contextual hint string for the LLM based on the Actor run status.
+ */
+export function getRunStatusHint(status: string): string {
+    switch (status) {
+        case ACTOR_RUN_STATUS.READY:
+        case ACTOR_RUN_STATUS.RUNNING:
+            return `Use \`${HelperTools.ACTOR_RUNS_GET}\` to wait for the Actor run to finish.`;
+        case ACTOR_RUN_STATUS.SUCCEEDED:
+            return `Use \`${HelperTools.ACTOR_OUTPUT_GET}\` with the \`datasetId\` from storages to retrieve results.`;
+        case ACTOR_RUN_STATUS.FAILED:
+        case ACTOR_RUN_STATUS.ABORTED:
+        case ACTOR_RUN_STATUS.TIMED_OUT:
+            return `Actor run failed. Use \`${HelperTools.ACTOR_RUNS_LOG}\` to inspect errors.`;
+        default:
+            return `Use \`${HelperTools.ACTOR_RUNS_GET}\` to check the Actor run status.`;
+    }
+}
+
+/**
+ * Builds the uniform structured content returned by both call-actor and get-actor-run.
+ */
+export function buildActorRunStructuredContent(params: {
+    run: ActorRun;
+    actorName: string;
+}): {
+    runId: string;
+    actorName: string;
+    status: string;
+    startedAt: string;
+    finishedAt?: string;
+    stats?: unknown;
+    storages: { defaultDatasetId: string; defaultKeyValueStoreId: string };
+    hint: string;
+} {
+    const { run, actorName } = params;
+    return {
+        runId: run.id,
+        actorName,
+        status: run.status,
+        startedAt: run.startedAt?.toISOString() || '',
+        ...(run.finishedAt ? { finishedAt: run.finishedAt.toISOString() } : {}),
+        ...(run.stats ? { stats: run.stats } : {}),
+        storages: {
+            defaultDatasetId: run.defaultDatasetId,
+            defaultKeyValueStoreId: run.defaultKeyValueStoreId,
+        },
+        hint: getRunStatusHint(run.status),
+    };
 }

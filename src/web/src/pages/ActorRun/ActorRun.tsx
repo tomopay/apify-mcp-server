@@ -9,6 +9,16 @@ import { formatDuration, formatTimestamp, humanizeActorName } from "../../utils/
 import { extractActorRunErrorMessage } from "../../utils/actor-run";
 import { TableSkeleton } from "./ActorRun.skeleton";
 
+// TODO: Define shared types for the tool response shape (text mode vs UI mode).
+// Text mode returns `actorRunOutputSchema` (storages, hint); UI mode may include widget-specific fields.
+// Both modes should share a single source of truth for the structured content shape.
+
+interface DatasetOutput {
+    datasetId: string;
+    totalItemCount: number;
+    items: Record<string, any>[];
+}
+
 interface ActorRunData {
     runId: string;
     actorName: string;
@@ -20,26 +30,30 @@ interface ActorRunData {
     duration: string;
     startedAt: string;
     finishedAt?: string;
+    datasetId?: string;
     stats?: {
         computeUnits?: number;
         memoryAvgBytes?: number;
         memoryMaxBytes?: number;
     };
-    dataset?: {
-        datasetId: string;
-        totalItemCount: number;
-        previewItems: Record<string, any>[];
-    };
 }
 
+/**
+ * Shape of the structured content returned by call-actor and get-actor-run tools.
+ * Matches `actorRunOutputSchema` from the server.
+ */
 interface ToolOutput extends Record<string, unknown> {
     runId?: string;
-    actorName?: string; // Full actor name with username (e.g., "apify/rag-web-browser")
+    actorName?: string;
     status?: string;
     startedAt?: string;
     finishedAt?: string;
     stats?: any;
-    dataset?: any;
+    storages?: {
+        defaultDatasetId?: string;
+        defaultKeyValueStoreId?: string;
+    };
+    hint?: string;
 }
 
 
@@ -297,8 +311,8 @@ function toolOutputToRunData(
         timestamp: formatTimestamp(startedAt),
         duration,
         cost: usageTotalUsd,
+        datasetId: toolOutput.storages?.defaultDatasetId,
         stats: toolOutput.stats,
-        dataset: toolOutput.dataset,
     };
 }
 
@@ -311,6 +325,7 @@ export const ActorRun: React.FC = () => {
 
     const [runData, setRunData] = useState<ActorRunData | null>(null);
     const [pictureUrl, setPictureUrl] = useState<string | undefined>(undefined);
+    const [datasetOutput, setDatasetOutput] = useState<DatasetOutput | null>(null);
 
     // Initialize runData from toolOutput (call-actor result) or by fetching run when we have a stable runId.
     // When the host overwrites toolResult with another tool (e.g. search-actors), toolOutput has no runId;
@@ -328,7 +343,7 @@ export const ActorRun: React.FC = () => {
         let cancelled = false;
         const fetchRunByRunId = async () => {
             try {
-                const response = await app.callServerTool({ name: "get-actor-run", arguments: { runId: stableRunId } });
+                const response = await app.callServerTool({ name: "get-actor-run", arguments: { runId: stableRunId, waitSecs: 0 } });
                 if (cancelled) return;
                 const data = response?.structuredContent as ToolOutput | undefined;
                 if (data?.runId) {
@@ -368,6 +383,35 @@ export const ActorRun: React.FC = () => {
         fetchActorDetails();
     }, [runData?.actorFullName, pictureUrl, app]);
 
+    // Fetch dataset preview items once the run succeeds
+    useEffect(() => {
+        if (!app || !runData?.datasetId || datasetOutput) return;
+        if (runData.status.toUpperCase() !== 'SUCCEEDED') return;
+
+        let cancelled = false;
+        const fetchDataset = async () => {
+            try {
+                const response = await app.callServerTool({
+                    name: "get-actor-output",
+                    arguments: { datasetId: runData.datasetId, limit: 5 },
+                });
+                if (cancelled) return;
+                const content = response?.structuredContent as { items?: Record<string, any>[]; totalItemCount?: number } | undefined;
+                if (content?.items) {
+                    setDatasetOutput({
+                        datasetId: runData.datasetId!,
+                        totalItemCount: content.totalItemCount ?? content.items.length,
+                        items: content.items,
+                    });
+                }
+            } catch (err) {
+                console.error('[ActorRun] Failed to fetch dataset items:', err);
+            }
+        };
+        void fetchDataset();
+        return () => { cancelled = true; };
+    }, [app, runData?.datasetId, runData?.status, datasetOutput]);
+
     // Auto-polling: Fetch status updates automatically with gradual escalation
     useEffect(() => {
         if (!app || !runData?.runId) return;
@@ -391,7 +435,7 @@ export const ActorRun: React.FC = () => {
                 if (isCancelled) break;
 
                 try {
-                    const response = await app.callServerTool({ name: "get-actor-run", arguments: { runId: runData.runId } });
+                    const response = await app.callServerTool({ name: "get-actor-run", arguments: { runId: runData.runId, waitSecs: 0 } });
 
                     if (response.structuredContent) {
                         const newData = response.structuredContent as unknown as ToolOutput;
@@ -419,8 +463,8 @@ export const ActorRun: React.FC = () => {
                             timestamp: formatTimestamp(startedAt),
                             duration,
                             cost: pollUsageTotalUsd,
+                            datasetId: newData.storages?.defaultDatasetId,
                             stats: newData.stats,
-                            dataset: newData.dataset,
                         };
 
                         setRunData(updatedRunData);
@@ -428,10 +472,11 @@ export const ActorRun: React.FC = () => {
                         const newStatus = (newData.status || '').toUpperCase();
                         if (TERMINAL_STATUSES.has(newStatus)) {
                             // Notify the model that the run completed so it can follow up.
+                            const datasetId = newData.storages?.defaultDatasetId;
                             const ctx = [
                                 `Actor run ${runData.runId} finished with status: ${newStatus}.`,
-                                newData.dataset?.datasetId ? `Dataset ID: ${newData.dataset.datasetId}` : null,
-                                newData.dataset?.totalItemCount != null ? `Items scraped: ${newData.dataset.totalItemCount}` : null,
+                                datasetId ? `Dataset ID: ${datasetId}` : null,
+                                newData.hint || null,
                             ].filter(Boolean).join(' ');
                             await app.updateModelContext({ content: [{ type: 'text', text: ctx }] }).catch(() => {});
                             break;
@@ -487,12 +532,6 @@ export const ActorRun: React.FC = () => {
         );
     }
 
-    // Extract table columns from first item
-    const columns = runData.dataset?.previewItems.length
-        ? Object.keys(runData.dataset.previewItems[0])
-        : [];
-
-
     const handleOpenRun = () => {
         if (runData && app) {
             app.openLink({ url: `https://console.apify.com/actors/runs/${runData.runId}` });
@@ -545,13 +584,13 @@ export const ActorRun: React.FC = () => {
                 {/* <IconButton Icon={ExpandIcon} onClick={() => setIsExpanded(!isExpanded)} /> */}
                 </ActorHeader>
 
-                {runData.dataset && runData.dataset.previewItems.length > 0 ? (
+                {datasetOutput && datasetOutput.items.length > 0 ? (
                     <>
                         <TableContainer>
                             <Table>
                                 <TableHeader>
                                     <tr>
-                                        {columns.map((column) => (
+                                        {Object.keys(datasetOutput.items[0]).map((column) => (
                                             <TableHeaderCell key={column}>
                                                 {column.charAt(0).toUpperCase() + column.slice(1)}
                                             </TableHeaderCell>
@@ -559,13 +598,12 @@ export const ActorRun: React.FC = () => {
                                     </tr>
                                 </TableHeader>
                                 <TableBody>
-                                    {runData.dataset.previewItems.map((item, index) => (
+                                    {datasetOutput.items.map((item, index) => (
                                         <TableRow key={index}>
-                                            {columns.map((column) => (
+                                            {Object.keys(datasetOutput.items[0]).map((column) => (
                                                 <TableCell key={column}>
                                                     {item[column] == null
                                                         ? "—"
-                                                        // If the value is an object, show number of fields instead of [object Object]
                                                         : typeof item[column] === 'object'
                                                             ? `${Object.keys(item[column]).length} fields`
                                                             : String(item[column]) || "—"}
@@ -575,33 +613,27 @@ export const ActorRun: React.FC = () => {
                                     ))}
                                 </TableBody>
                             </Table>
-                            {runData.dataset.previewItems.length > 3 && <TableGradientOverlay />}
+                            {datasetOutput.items.length > 3 && <TableGradientOverlay />}
                         </TableContainer>
                     </>
                 ) : runData.status.toUpperCase() === 'RUNNING' ? (
                     <TableSkeleton />
-                ) : (
+                ) : runData.status.toUpperCase() === 'READY' ? (
                     <EmptyStateContainer>
-                        {runData.status.toUpperCase() === 'READY' ? (
-                            <Text type="body" size="small" style={{ color: theme.color.neutral.textMuted }}>
-                                The Actor is ready to run.
-                            </Text>
-                        ) : (
-                            <Text type="body" size="small" style={{ color: theme.color.neutral.textMuted }}>
-                                No results available.
-                            </Text>
-                        )}
+                        <Text type="body" size="small" style={{ color: theme.color.neutral.textMuted }}>
+                            The Actor is ready to run.
+                        </Text>
                     </EmptyStateContainer>
-                )}
+                ) : null}
                 <Footer>
                     <Button onClick={handleOpenRun} variant="secondary" size="small">
                         View on Apify
                     </Button>
                 </Footer>
             </Container>
-            {runData.status.toUpperCase() === 'SUCCEEDED' && runData && runData.dataset && runData.dataset.totalItemCount > 0 && (
+            {runData.status.toUpperCase() === 'SUCCEEDED' && datasetOutput && datasetOutput.totalItemCount > 0 && (
                 <SuccessMessage>
-                    The {runData.actorName} found {runData.dataset.totalItemCount} result{runData.dataset.totalItemCount !== 1 ? 's' : ''}. You can visit results via the provided link.
+                    The {runData.actorName} found {datasetOutput.totalItemCount} result{datasetOutput.totalItemCount !== 1 ? 's' : ''}. You can visit results via the provided link.
                 </SuccessMessage>
             )}
         </WidgetLayout>
