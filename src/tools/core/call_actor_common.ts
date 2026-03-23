@@ -2,6 +2,7 @@ import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { ActorRun } from 'apify-client';
 import { z } from 'zod';
 
+import type { ApifyClient as ApifyClientType } from '../../apify_client.js';
 import { ApifyClient, createApifyClientWithSkyfireSupport } from '../../apify_client.js';
 import {
     ACTOR_RUN_STATUS,
@@ -291,6 +292,39 @@ export async function callActorPreExecute(toolArgs: InternalToolArgs): Promise<
     }
 
     return { parsed, baseActorName, mcpToolName };
+}
+
+/**
+ * Waits for an Actor run to finish, racing against an optional abort signal.
+ * On abort, the Actor run is aborted via the API.
+ * Returns the completed ActorRun, or `null` if the run was aborted by the client.
+ */
+export async function waitForRunWithAbort(params: {
+    runId: string;
+    apifyClient: ApifyClientType;
+    abortSignal?: AbortSignal;
+}): Promise<ActorRun | null> {
+    const { runId, apifyClient, abortSignal } = params;
+    const CLIENT_ABORT = Symbol('CLIENT_ABORT');
+
+    const abortPromise = new Promise<typeof CLIENT_ABORT>((resolve) => {
+        abortSignal?.addEventListener('abort', () => {
+            apifyClient.run(runId).abort({ gracefully: false }).catch((e) => {
+                logHttpError(e, 'Error aborting Actor run', { runId });
+            });
+            resolve(CLIENT_ABORT);
+        }, { once: true });
+    });
+
+    const result = await Promise.race([
+        apifyClient.run(runId).waitForFinish(),
+        ...(abortSignal ? [abortPromise] : []),
+    ]);
+
+    if (result === CLIENT_ABORT) {
+        return null;
+    }
+    return result as ActorRun;
 }
 
 /**

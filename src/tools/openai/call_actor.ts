@@ -7,6 +7,7 @@ import type { InternalToolArgs, ToolEntry } from '../../types.js';
 import { logHttpError } from '../../utils/logging.js';
 import { buildMCPResponse } from '../../utils/mcp.js';
 import {
+    buildActorRunStructuredContent,
     CALL_ACTOR_EXAMPLES_SECTION,
     CALL_ACTOR_MCP_SERVER_SECTION,
     CALL_ACTOR_USAGE_SECTION,
@@ -15,7 +16,7 @@ import {
     callActorPreExecute,
     resolveAndValidateActor,
 } from '../core/call_actor_common.js';
-import { callActorOutputSchema } from '../structured_output_schemas.js';
+import { actorRunOutputSchema } from '../structured_output_schemas.js';
 
 const CALL_ACTOR_OPENAI_DESCRIPTION = [
     `Call any Actor from the Apify Store.`,
@@ -32,7 +33,7 @@ Do NOT use ${HelperTools.STORE_SEARCH} for name resolution when the next step is
     `IMPORTANT:
 - This tool always runs asynchronously — it starts the Actor and returns immediately with a runId. A live widget automatically tracks the run progress.
 - After calling this tool, do NOT poll or call any other tool. Wait for the user to respond — the widget will update them when the run completes.
-- Once the run completes, use ${HelperTools.ACTOR_OUTPUT_GET} tool with the datasetId to fetch full results.
+- Once the run completes, use ${HelperTools.ACTOR_OUTPUT_GET} tool with the datasetId from storages to fetch full results.
 - Use dedicated Actor tools when available for better experience`,
 
     CALL_ACTOR_USAGE_SECTION,
@@ -50,7 +51,7 @@ export const openaiCallActor: ToolEntry = Object.freeze({
     name: HelperTools.ACTOR_CALL,
     description: CALL_ACTOR_OPENAI_DESCRIPTION,
     inputSchema: callActorInputSchema,
-    outputSchema: callActorOutputSchema,
+    outputSchema: actorRunOutputSchema,
     ajvValidate: callActorAjvValidate,
     requiresSkyfirePayId: true,
     // openai-only tool; openai/* and ui keys also stripped in non-openai mode by stripWidgetMeta() in src/utils/tools.ts
@@ -86,33 +87,23 @@ export const openaiCallActor: ToolEntry = Object.freeze({
             const apifyClient = createApifyClientWithSkyfireSupport(toolArgs.apifyMcpServer, toolArgs.args, toolArgs.apifyToken);
 
             // OpenAI mode always runs asynchronously
-            const actorClient = apifyClient.actor(baseActorName);
-            const actorRun = await actorClient.start(input, callOptions);
+            const actorRun = await apifyClient.actor(baseActorName).start(input, callOptions);
 
             log.debug('Started Actor run (async)', { actorName: baseActorName, runId: actorRun.id, mcpSessionId: toolArgs.mcpSessionId });
 
-            const structuredContent = {
-                runId: actorRun.id,
-                actorName: baseActorName,
-                status: actorRun.status,
-                startedAt: actorRun.startedAt?.toISOString() || '',
-                input,
-            };
+            const structuredContent = buildActorRunStructuredContent({ run: actorRun, actorName: baseActorName });
 
             const responseText = `Started Actor "${baseActorName}" (Run ID: ${actorRun.id}).
 
 A live progress widget has been rendered that automatically tracks this run and refreshes status every few seconds until completion.
 
-The widget will update the context with run status and datasetId when the run completes. Once complete (or if the user requests results), use ${HelperTools.ACTOR_OUTPUT_GET} with the datasetId to retrieve the output.
+The widget will update the context with run status and datasetId when the run completes. Once complete (or if the user requests results), use ${HelperTools.ACTOR_OUTPUT_GET} with the datasetId from storages to retrieve the output.
 
 Do NOT proactively poll using ${HelperTools.ACTOR_RUNS_GET}. Wait for the widget state update or user instructions. Ask the user what they would like to do next.`;
 
             const widgetConfig = getWidgetConfig(WIDGET_URIS.ACTOR_RUN);
             return {
-                content: [{
-                    type: 'text',
-                    text: responseText,
-                }],
+                content: [{ type: 'text', text: responseText }],
                 structuredContent,
                 // Response-level meta; only returned in openai mode (this handler is openai-only)
                 _meta: {

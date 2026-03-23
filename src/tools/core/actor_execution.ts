@@ -6,10 +6,11 @@ import type { ApifyClient } from '../../apify_client.js';
 import { TOOL_MAX_OUTPUT_CHARS } from '../../const.js';
 import type { ActorDefinitionStorage, DatasetItem } from '../../types.js';
 import { ensureOutputWithinCharLimit, getActorDefinitionStorageFieldNames } from '../../utils/actor.js';
-import { logHttpError, redactSkyfirePayId } from '../../utils/logging.js';
+import { redactSkyfirePayId } from '../../utils/logging.js';
 import type { ProgressTracker } from '../../utils/progress.js';
 import type { JsonSchemaProperty } from '../../utils/schema_generation.js';
 import { generateSchemaFromItems } from '../../utils/schema_generation.js';
+import { waitForRunWithAbort } from './call_actor_common.js';
 
 // Define a named return type for callActorGetDataset
 export type CallActorGetDatasetResult = {
@@ -56,7 +57,6 @@ export async function callActorGetDataset(options: {
         previewOutput = true,
         mcpSessionId,
     } = options;
-    const CLIENT_ABORT = Symbol('CLIENT_ABORT'); // Just an internal symbol to identify client abort
     const actorClient = apifyClient.actor(actorName);
 
     // Start the actor run
@@ -67,31 +67,17 @@ export async function callActorGetDataset(options: {
         progressTracker.startActorRunUpdates(actorRun.id, apifyClient, actorName);
     }
 
-    // Create abort promise that handles both API abort and race rejection
-    const abortPromise = async () => new Promise<typeof CLIENT_ABORT>((resolve) => {
-        abortSignal?.addEventListener('abort', async () => {
-            // Abort the actor run via API
-            try {
-                await apifyClient.run(actorRun.id).abort({ gracefully: false });
-            } catch (e) {
-                logHttpError(e, 'Error aborting Actor run', { runId: actorRun.id });
-            }
-            // Reject to stop waiting
-            resolve(CLIENT_ABORT);
-        }, { once: true });
+    // Wait for completion or cancellation
+    const completedRun = await waitForRunWithAbort({
+        runId: actorRun.id,
+        apifyClient,
+        abortSignal,
     });
 
-    // Wait for completion or cancellation
-    const potentialAbortedRun = await Promise.race([
-        apifyClient.run(actorRun.id).waitForFinish(),
-        ...(abortSignal ? [abortPromise()] : []),
-    ]);
-
-    if (potentialAbortedRun === CLIENT_ABORT) {
+    if (!completedRun) {
         log.info('Actor run aborted by client', { actorName, mcpSessionId, input: redactSkyfirePayId(input) });
         return null;
     }
-    const completedRun = potentialAbortedRun as ActorRun;
 
     // Process the completed run
     const dataset = apifyClient.dataset(completedRun.defaultDatasetId);

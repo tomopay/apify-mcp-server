@@ -6,9 +6,8 @@ import { getWidgetConfig, WIDGET_URIS } from '../../resources/widgets.js';
 import type { InternalToolArgs, ToolEntry } from '../../types.js';
 import { logHttpError } from '../../utils/logging.js';
 import { buildMCPResponse, buildUsageMeta } from '../../utils/mcp.js';
-import { callActorGetDataset } from '../core/actor_execution.js';
-import { buildActorResponseContent } from '../core/actor_response.js';
 import {
+    buildActorRunStructuredContent,
     CALL_ACTOR_EXAMPLES_SECTION,
     CALL_ACTOR_MCP_SERVER_SECTION,
     CALL_ACTOR_USAGE_SECTION,
@@ -16,8 +15,9 @@ import {
     callActorInputSchema,
     callActorPreExecute,
     resolveAndValidateActor,
+    waitForRunWithAbort,
 } from '../core/call_actor_common.js';
-import { callActorOutputSchema } from '../structured_output_schemas.js';
+import { actorRunOutputSchema } from '../structured_output_schemas.js';
 
 const CALL_ACTOR_DEFAULT_DESCRIPTION = [
     `Call any Actor from the Apify Store.`,
@@ -31,30 +31,27 @@ If the actor name is not in "username/name" format, use ${HelperTools.STORE_SEAR
     CALL_ACTOR_MCP_SERVER_SECTION,
 
     `IMPORTANT:
-- Typically returns a datasetId and preview of output items
-- Use ${HelperTools.ACTOR_OUTPUT_GET} tool with the datasetId to fetch full results
+- This tool starts the Actor and returns immediately with run metadata (runId, status, storages).
+- Use ${HelperTools.ACTOR_RUNS_GET} to wait for the Actor run to finish (supports waitSecs for bounded waiting).
+- Once completed, use ${HelperTools.ACTOR_OUTPUT_GET} tool with the datasetId from storages to fetch full results.
 - Use dedicated Actor tools when available for better experience`,
 
     CALL_ACTOR_USAGE_SECTION,
-
-    `- This tool supports async execution via the \`async\` parameter:
-  - **When \`async: false\` or not provided** (default): Waits for completion and returns results immediately with dataset preview. Use this whenever the user asks for data or results.
-  - **When \`async: true\`**: Starts the run and returns immediately with runId. Only use this when the user explicitly asks to run the Actor in the background or does not need immediate results.`,
 
     CALL_ACTOR_EXAMPLES_SECTION,
 ].join('\n\n');
 
 /**
  * Default mode call-actor tool.
- * Supports both sync (default) and async execution.
- * Does not include widget metadata in responses.
+ * Always starts the Actor and returns immediately with run metadata.
+ * In MCP task mode (mcpTaskExecution), waits for completion before returning.
  */
 export const defaultCallActor: ToolEntry = Object.freeze({
     type: 'internal',
     name: HelperTools.ACTOR_CALL,
     description: CALL_ACTOR_DEFAULT_DESCRIPTION,
     inputSchema: callActorInputSchema,
-    outputSchema: callActorOutputSchema,
+    outputSchema: actorRunOutputSchema,
     ajvValidate: callActorAjvValidate,
     requiresSkyfirePayId: true,
     // openai/* and ui keys are stripped in non-openai mode by stripWidgetMeta() in src/utils/tools.ts
@@ -79,7 +76,7 @@ export const defaultCallActor: ToolEntry = Object.freeze({
         }
 
         const { parsed, baseActorName } = preResult;
-        const { input, async: isAsync = false, previewOutput = true, callOptions } = parsed;
+        const { input, callOptions } = parsed;
 
         try {
             const resolution = await resolveAndValidateActor({
@@ -93,58 +90,52 @@ export const defaultCallActor: ToolEntry = Object.freeze({
 
             const apifyClient = createApifyClientWithSkyfireSupport(toolArgs.apifyMcpServer, toolArgs.args, toolArgs.apifyToken);
 
-            // Async mode: start run and return immediately with runId
-            if (isAsync) {
-                const actorClient = apifyClient.actor(baseActorName);
-                const actorRun = await actorClient.start(input, callOptions);
+            // Start the Actor run
+            const actorRun = await apifyClient.actor(baseActorName).start(input, callOptions);
 
-                log.debug('Started Actor run (async)', { actorName: baseActorName, runId: actorRun.id, mcpSessionId: toolArgs.mcpSessionId });
+            log.debug('Started Actor run', { actorName: baseActorName, runId: actorRun.id, mcpSessionId: toolArgs.mcpSessionId });
 
-                const structuredContent = {
+            // In task mode, wait for the run to finish before returning.
+            // The MCP task framework keeps the task "working" while this promise is pending.
+            if (toolArgs.mcpTaskExecution) {
+                if (toolArgs.progressTracker) {
+                    toolArgs.progressTracker.startActorRunUpdates(actorRun.id, apifyClient, baseActorName);
+                }
+
+                const completedRun = await waitForRunWithAbort({
                     runId: actorRun.id,
-                    actorName: baseActorName,
-                    status: actorRun.status,
-                    startedAt: actorRun.startedAt?.toISOString() || '',
-                    input,
-                };
+                    apifyClient,
+                    abortSignal: toolArgs.extra.signal,
+                });
 
+                if (!completedRun) {
+                    log.info('Actor run aborted by client', { actorName: baseActorName, mcpSessionId: toolArgs.mcpSessionId });
+                    return {};
+                }
+
+                const structuredContent = buildActorRunStructuredContent({ run: completedRun, actorName: baseActorName });
+                const _meta = buildUsageMeta(completedRun);
                 return {
                     content: [{
                         type: 'text',
-                        text: `Started Actor "${baseActorName}" (Run ID: ${actorRun.id}).`,
+                        text: `Actor "${baseActorName}" run ${completedRun.id} finished with status: ${completedRun.status}. ${structuredContent.hint}`,
                     }],
                     structuredContent,
+                    ...(_meta && { _meta }),
                 };
             }
 
-            // Sync mode: wait for completion and return results
-            const callResult = await callActorGetDataset({
-                actorName: baseActorName,
-                input,
-                apifyClient,
-                callOptions,
-                progressTracker: toolArgs.progressTracker,
-                abortSignal: toolArgs.extra.signal,
-                previewOutput,
-                mcpSessionId: toolArgs.mcpSessionId,
-            });
-
-            if (!callResult) {
-                // Receivers of cancellation notifications SHOULD NOT send a response for the cancelled request
-                // https://modelcontextprotocol.io/specification/2025-06-18/basic/utilities/cancellation#behavior-requirements
-                return {};
-            }
-
-            const { content, structuredContent } = buildActorResponseContent(baseActorName, callResult, previewOutput);
-            const _meta = buildUsageMeta(callResult);
+            // Non-task mode: return immediately with run metadata
+            const structuredContent = buildActorRunStructuredContent({ run: actorRun, actorName: baseActorName });
             return {
-                content,
+                content: [{
+                    type: 'text',
+                    text: `Started Actor "${baseActorName}" (Run ID: ${actorRun.id}). ${structuredContent.hint}`,
+                }],
                 structuredContent,
-                ...(_meta && { _meta }),
             };
         } catch (error) {
-            logHttpError(error, 'Failed to call Actor', { actorName: baseActorName, async: isAsync });
-            // Let the server classify the error; we only mark it as an MCP error response
+            logHttpError(error, 'Failed to call Actor', { actorName: baseActorName });
             return buildMCPResponse({
                 texts: [`Failed to call Actor '${baseActorName}': ${error instanceof Error ? error.message : String(error)}.
 Please verify the Actor name, input parameters, and ensure the Actor exists.
