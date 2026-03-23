@@ -239,39 +239,34 @@ export const callActorOutputSchema = {
 };
 
 /**
- * Schema for get-actor-run tool output.
- * Contains full run information including status, timestamps, stats, and dataset preview.
+ * Shared schema for call-actor (non-blocking) and get-actor-run responses.
+ * Contains Actor run metadata, storage IDs, and a contextual hint.
+ * Used as outputSchema for both tools.
  */
-export const getActorRunOutputSchema = {
+export const actorRunOutputSchema = {
     type: 'object' as const,
     properties: {
         runId: { type: 'string', description: 'Actor run ID' },
         actorName: { type: 'string', description: 'Name of the Actor' },
-        status: { type: 'string', description: 'Run status (READY, RUNNING, SUCCEEDED, FAILED, ABORTING, ABORTED, TIMED-OUT)' },
+        status: { type: 'string', description: 'Run status (READY, RUNNING, SUCCEEDED, FAILED, ABORTING, ABORTED, TIMING-OUT, TIMED-OUT)' },
         startedAt: { type: 'string', description: 'ISO timestamp when the run started' },
         finishedAt: { type: 'string', description: 'ISO timestamp when the run finished (only for completed runs)' },
         stats: {
             type: 'object' as const,
             description: 'Run statistics (compute units, memory, duration, etc.)',
         },
-        dataset: {
+        storages: {
             type: 'object' as const,
-            description: 'Dataset information (only for completed runs with results)',
+            description: 'Storage IDs associated with the Actor run',
             properties: {
-                datasetId: { type: 'string', description: 'Default dataset ID' },
-                totalItemCount: { type: 'number', description: 'Total number of items in dataset' },
-                previewItemCount: { type: 'number', description: 'Number of preview items returned' },
-                schema: { type: 'object' as const, description: 'Auto-generated JSON schema from dataset items' },
-                previewItems: {
-                    type: 'array' as const,
-                    items: { type: 'object' as const },
-                    description: 'Preview of first 5 dataset items',
-                },
+                defaultDatasetId: { type: 'string', description: 'Default dataset ID for the run' },
+                defaultKeyValueStoreId: { type: 'string', description: 'Default key-value store ID for the run' },
             },
-            required: ['datasetId', 'totalItemCount', 'previewItemCount', 'schema', 'previewItems'],
+            required: ['defaultDatasetId', 'defaultKeyValueStoreId'],
         },
+        hint: { type: 'string', description: 'Contextual hint for next steps based on run status' },
     },
-    required: ['runId', 'status', 'startedAt'],
+    required: ['runId', 'actorName', 'status', 'startedAt', 'storages', 'hint'],
 };
 
 /**
