@@ -45,7 +45,7 @@ import {
     SERVER_VERSION,
     TOOL_STATUS,
 } from '../const.js';
-import { preparePayment } from '../payments/prepare.js';
+import { preparePayment } from '../payments/helpers.js';
 import { prompts } from '../prompts/index.js';
 import { createResourceService } from '../resources/resource_service.js';
 import type { AvailableWidget } from '../resources/widgets.js';
