@@ -7,6 +7,18 @@ export const ACTOR_MAX_DESCRIPTION_LENGTH = 500;
 // Actor run const
 export const ACTOR_MAX_MEMORY_MBYTES = 4_096; // If the Actor requires 8GB of memory, free users can't run actors-mcp-server and requested Actor
 
+/** Apify Actor run status values, mirroring ACTOR_JOB_STATUSES from @apify/consts. */
+export const ACTOR_RUN_STATUS = {
+    READY: 'READY',
+    RUNNING: 'RUNNING',
+    SUCCEEDED: 'SUCCEEDED',
+    FAILED: 'FAILED',
+    TIMING_OUT: 'TIMING-OUT',
+    TIMED_OUT: 'TIMED-OUT',
+    ABORTING: 'ABORTING',
+    ABORTED: 'ABORTED',
+} as const;
+
 // Tool output
 /**
  * Usual tool output limit is 25k tokens where 1 token =~ 4 characters

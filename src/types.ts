@@ -140,6 +140,9 @@ export type InternalToolArgs = {
     progressTracker?: ProgressTracker | null;
     /** MCP session ID for logging context */
     mcpSessionId?: string;
+    /** When true, indicates the tool is executing inside an MCP task (long-running).
+     *  call-actor uses this to wait for the Actor run to finish before returning. */
+    mcpTaskExecution?: boolean;
 };
 
 /**

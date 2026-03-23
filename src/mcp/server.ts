@@ -1035,6 +1035,7 @@ Please verify the tool name and ensure the tool is properly registered.`;
                         userRentedActorIds,
                         progressTracker,
                         mcpSessionId,
+                        mcpTaskExecution: true,
                     }) as object;
 
                     // If the tool returned internalToolStatus, use it; otherwise infer from isError flag

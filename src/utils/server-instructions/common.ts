@@ -51,9 +51,9 @@ ${input.workflowRules}## Tool dependencies and disambiguation
   - ${input.schemaToolHint}
   - Then call with proper input to execute the Actor
   - For MCP server Actors, use format "actorName:toolName" to call specific tools
-  - Supports async execution via the \`async\` parameter:
-  - When \`async: false\` or not provided (default when UI mode is disabled): Waits for completion and returns results immediately.
-  - When \`async: true\` (enforced when UI mode is enabled): Starts the run and returns immediately with runId. The widget automatically displays and polls for updates - no further action needed.
+  - Always starts the Actor and returns immediately with run metadata (runId, status, storages).
+  - Use \`${HelperTools.ACTOR_RUNS_GET}\` with \`waitSecs\` to wait for the run to finish.
+  - Once completed, use \`${HelperTools.ACTOR_OUTPUT_GET}\` with the datasetId from storages to retrieve results.
 
 ### Tool disambiguation
 - **${HelperTools.ACTOR_OUTPUT_GET} vs ${HelperTools.DATASET_GET_ITEMS}:**
