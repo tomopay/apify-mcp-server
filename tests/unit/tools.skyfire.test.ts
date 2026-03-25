@@ -1,8 +1,8 @@
 /**
- * Tests for Skyfire augmentation logic: `applySkyfireAugmentation` and `cloneToolEntry`.
+ * Tests for Skyfire tool decoration logic: `SkyfirePaymentProvider.decorateToolSchema` and `cloneToolEntry`.
  *
  * Covers:
- * - Eligible vs non-eligible tools
+ * - paymentRequired tools are decorated; others are returned unchanged
  * - Idempotency (double-apply does not duplicate)
  * - Frozen originals are not mutated
  * - `cloneToolEntry` preserves functions (ajvValidate, call)
@@ -11,13 +11,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-    HelperTools,
-    SKYFIRE_ENABLED_TOOLS,
     SKYFIRE_PAY_ID_PROPERTY_DESCRIPTION,
     SKYFIRE_TOOL_INSTRUCTIONS,
 } from '../../src/const.js';
+import { SkyfirePaymentProvider } from '../../src/payments/skyfire.js';
 import type { ActorMcpTool, ActorTool, HelperTool, ToolEntry } from '../../src/types.js';
-import { applySkyfireAugmentation, cloneToolEntry } from '../../src/utils/tools.js';
+import { cloneToolEntry } from '../../src/utils/tools.js';
+
+const provider = new SkyfirePaymentProvider();
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -27,7 +28,7 @@ const MOCK_AJV_VALIDATE = vi.fn(() => true);
 
 function makeInternalTool(overrides: Partial<HelperTool> = {}): HelperTool {
     return {
-        name: HelperTools.ACTOR_CALL,
+        name: 'call-actor',
         description: 'Call an Actor',
         type: 'internal',
         inputSchema: {
@@ -71,14 +72,6 @@ function makeActorMcpTool(overrides: Partial<ActorMcpTool> = {}): ActorMcpTool {
         ajvValidate: MOCK_AJV_VALIDATE as never,
         ...overrides,
     };
-}
-
-function makeNonEligibleInternalTool(): HelperTool {
-    // search-apify-docs is NOT in SKYFIRE_ENABLED_TOOLS
-    return makeInternalTool({
-        name: HelperTools.DOCS_SEARCH,
-        description: 'Search documentation',
-    });
 }
 
 // ---------------------------------------------------------------------------
@@ -139,16 +132,15 @@ describe('cloneToolEntry', () => {
 });
 
 // ---------------------------------------------------------------------------
-// applySkyfireAugmentation — eligible tools
+// SkyfirePaymentProvider.decorateToolSchema — paymentRequired tools
 // ---------------------------------------------------------------------------
 
-describe('applySkyfireAugmentation', () => {
-    describe('eligible internal tools', () => {
-        it('should augment an eligible internal tool', () => {
-            const original = makeInternalTool({ name: HelperTools.ACTOR_CALL });
-            const result = applySkyfireAugmentation(original);
+describe('SkyfirePaymentProvider.decorateToolSchema', () => {
+    describe('paymentRequired tools', () => {
+        it('should decorate an internal tool with paymentRequired: true', () => {
+            const original = makeInternalTool({ paymentRequired: true });
+            const result = provider.decorateToolSchema(original);
 
-            // Returns a different object (cloned)
             expect(result).not.toBe(original);
             expect(result.description).toContain(SKYFIRE_TOOL_INSTRUCTIONS);
 
@@ -160,22 +152,9 @@ describe('applySkyfireAugmentation', () => {
             expect(Object.isFrozen(result)).toBe(true);
         });
 
-        // Test each SKYFIRE_ENABLED_TOOLS member
-        for (const toolName of SKYFIRE_ENABLED_TOOLS) {
-            it(`should augment ${toolName}`, () => {
-                const tool = makeInternalTool({ name: toolName });
-                const result = applySkyfireAugmentation(tool);
-
-                expect(result).not.toBe(tool);
-                expect(result.description).toContain(SKYFIRE_TOOL_INSTRUCTIONS);
-            });
-        }
-    });
-
-    describe('actor tools', () => {
-        it('should augment any actor tool (type: actor)', () => {
-            const original = makeActorTool();
-            const result = applySkyfireAugmentation(original);
+        it('should decorate an actor tool with paymentRequired: true', () => {
+            const original = makeActorTool({ paymentRequired: true });
+            const result = provider.decorateToolSchema(original);
 
             expect(result).not.toBe(original);
             expect(result.description).toContain(SKYFIRE_TOOL_INSTRUCTIONS);
@@ -186,40 +165,44 @@ describe('applySkyfireAugmentation', () => {
         });
     });
 
-    describe('non-eligible tools', () => {
-        it('should return the original reference for non-eligible internal tool', () => {
-            const original = makeNonEligibleInternalTool();
-            const result = applySkyfireAugmentation(original);
+    describe('non-paymentRequired tools', () => {
+        it('should return the original reference when paymentRequired is false', () => {
+            const original = makeInternalTool({ paymentRequired: false });
+            const result = provider.decorateToolSchema(original);
 
-            // Returns the exact same object (not cloned)
             expect(result).toBe(original);
             expect(result.description).not.toContain(SKYFIRE_TOOL_INSTRUCTIONS);
         });
 
-        it('should return the original reference for actor-mcp tool', () => {
-            const original = makeActorMcpTool();
-            const result = applySkyfireAugmentation(original);
+        it('should return the original reference when paymentRequired is undefined', () => {
+            const original = makeActorTool();
+            const result = provider.decorateToolSchema(original);
 
             expect(result).toBe(original);
-            expect(result.description).not.toContain(SKYFIRE_TOOL_INSTRUCTIONS);
+        });
+
+        it('should return the original reference for actor-mcp tool without paymentRequired', () => {
+            const original = makeActorMcpTool();
+            const result = provider.decorateToolSchema(original);
+
+            expect(result).toBe(original);
         });
     });
 
     describe('idempotency', () => {
         it('should not double-append description when called twice', () => {
-            const original = makeInternalTool({ name: HelperTools.ACTOR_CALL });
-            const firstPass = applySkyfireAugmentation(original);
-            const secondPass = applySkyfireAugmentation(firstPass);
+            const original = makeInternalTool({ paymentRequired: true });
+            const firstPass = provider.decorateToolSchema(original);
+            const secondPass = provider.decorateToolSchema(firstPass);
 
-            // Description should contain SKYFIRE_TOOL_INSTRUCTIONS exactly once
             const occurrences = secondPass.description!.split(SKYFIRE_TOOL_INSTRUCTIONS).length - 1;
             expect(occurrences).toBe(1);
         });
 
         it('should not duplicate skyfire-pay-id property when called twice', () => {
-            const original = makeActorTool();
-            const firstPass = applySkyfireAugmentation(original);
-            const secondPass = applySkyfireAugmentation(firstPass);
+            const original = makeActorTool({ paymentRequired: true });
+            const firstPass = provider.decorateToolSchema(original);
+            const secondPass = provider.decorateToolSchema(firstPass);
 
             const props = secondPass.inputSchema.properties as Record<string, unknown>;
             expect(props['skyfire-pay-id']).toEqual({
@@ -230,29 +213,18 @@ describe('applySkyfireAugmentation', () => {
     });
 
     describe('frozen originals', () => {
-        it('should not mutate a frozen internal tool', () => {
-            const original = Object.freeze(makeInternalTool({ name: HelperTools.ACTOR_CALL }));
-            const result = applySkyfireAugmentation(original);
+        it('should not mutate a frozen tool with paymentRequired: true', () => {
+            const original = Object.freeze(makeInternalTool({ paymentRequired: true }));
+            const result = provider.decorateToolSchema(original);
 
-            // Result is augmented
             expect(result.description).toContain(SKYFIRE_TOOL_INSTRUCTIONS);
-
-            // Original is unchanged
             expect(original.description).not.toContain(SKYFIRE_TOOL_INSTRUCTIONS);
             expect(Object.isFrozen(original)).toBe(true);
         });
 
-        it('should not mutate a frozen actor tool', () => {
-            const original = Object.freeze(makeActorTool());
-            const result = applySkyfireAugmentation(original);
-
-            expect(result.description).toContain(SKYFIRE_TOOL_INSTRUCTIONS);
-            expect(original.description).not.toContain(SKYFIRE_TOOL_INSTRUCTIONS);
-        });
-
-        it('should return frozen non-eligible tool as-is', () => {
-            const original = Object.freeze(makeNonEligibleInternalTool());
-            const result = applySkyfireAugmentation(original);
+        it('should return frozen non-paymentRequired tool as-is', () => {
+            const original = Object.freeze(makeInternalTool());
+            const result = provider.decorateToolSchema(original);
 
             expect(result).toBe(original);
             expect(Object.isFrozen(result)).toBe(true);
@@ -260,25 +232,25 @@ describe('applySkyfireAugmentation', () => {
     });
 
     describe('function preservation', () => {
-        it('should preserve ajvValidate on augmented internal tool', () => {
-            const original = makeInternalTool({ name: HelperTools.ACTOR_CALL });
-            const result = applySkyfireAugmentation(original) as HelperTool;
+        it('should preserve ajvValidate on decorated internal tool', () => {
+            const original = makeInternalTool({ paymentRequired: true });
+            const result = provider.decorateToolSchema(original) as HelperTool;
 
             expect(result.ajvValidate).toBe(original.ajvValidate);
             expect(typeof result.ajvValidate).toBe('function');
         });
 
-        it('should preserve call function on augmented internal tool', () => {
-            const original = makeInternalTool({ name: HelperTools.ACTOR_CALL });
-            const result = applySkyfireAugmentation(original) as HelperTool;
+        it('should preserve call function on decorated internal tool', () => {
+            const original = makeInternalTool({ paymentRequired: true });
+            const result = provider.decorateToolSchema(original) as HelperTool;
 
             expect(result.call).toBe(original.call);
             expect(typeof result.call).toBe('function');
         });
 
-        it('should preserve ajvValidate on augmented actor tool', () => {
-            const original = makeActorTool();
-            const result = applySkyfireAugmentation(original);
+        it('should preserve ajvValidate on decorated actor tool', () => {
+            const original = makeActorTool({ paymentRequired: true });
+            const result = provider.decorateToolSchema(original);
 
             expect(result.ajvValidate).toBe(original.ajvValidate);
         });
@@ -287,21 +259,20 @@ describe('applySkyfireAugmentation', () => {
     describe('edge cases', () => {
         it('should handle tool with no description gracefully', () => {
             const original = makeInternalTool({
-                name: HelperTools.ACTOR_CALL,
+                paymentRequired: true,
                 description: undefined as unknown as string,
             });
-            const result = applySkyfireAugmentation(original);
+            const result = provider.decorateToolSchema(original);
 
-            // Should not throw, description stays undefined
             expect(result.description).toBeUndefined();
         });
 
         it('should handle tool with empty inputSchema properties', () => {
             const original = makeInternalTool({
-                name: HelperTools.ACTOR_CALL,
+                paymentRequired: true,
                 inputSchema: { type: 'object' as const, properties: {} },
             });
-            const result = applySkyfireAugmentation(original);
+            const result = provider.decorateToolSchema(original);
 
             const props = result.inputSchema.properties as Record<string, unknown>;
             expect(props['skyfire-pay-id']).toBeDefined();
@@ -310,23 +281,23 @@ describe('applySkyfireAugmentation', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Matrix: mode × eligibility (using getCategoryTools)
+// Matrix: paymentRequired × tool type
 // ---------------------------------------------------------------------------
 
-describe('Skyfire eligibility matrix', () => {
-    const testCases: { tool: ToolEntry; eligible: boolean; label: string }[] = [
-        { tool: makeInternalTool({ name: HelperTools.ACTOR_CALL }), eligible: true, label: 'internal/eligible (call-actor)' },
-        { tool: makeInternalTool({ name: HelperTools.ACTOR_OUTPUT_GET }), eligible: true, label: 'internal/eligible (get-actor-output)' },
-        { tool: makeNonEligibleInternalTool(), eligible: false, label: 'internal/non-eligible (search-apify-docs)' },
-        { tool: makeActorTool(), eligible: true, label: 'actor tool' },
-        { tool: makeActorMcpTool(), eligible: false, label: 'actor-mcp tool' },
+describe('decorateToolSchema eligibility matrix', () => {
+    const testCases: { tool: ToolEntry; decorated: boolean; label: string }[] = [
+        { tool: makeInternalTool({ paymentRequired: true }), decorated: true, label: 'internal/paymentRequired' },
+        { tool: makeActorTool({ paymentRequired: true }), decorated: true, label: 'actor/paymentRequired' },
+        { tool: makeInternalTool({ paymentRequired: false }), decorated: false, label: 'internal/not-paymentRequired' },
+        { tool: makeActorTool(), decorated: false, label: 'actor/no-paymentRequired' },
+        { tool: makeActorMcpTool(), decorated: false, label: 'actor-mcp/no-paymentRequired' },
     ];
 
-    for (const { tool, eligible, label } of testCases) {
-        it(`${label}: eligible=${eligible}`, () => {
-            const result = applySkyfireAugmentation(tool);
+    for (const { tool, decorated, label } of testCases) {
+        it(`${label}: decorated=${decorated}`, () => {
+            const result = provider.decorateToolSchema(tool);
 
-            if (eligible) {
+            if (decorated) {
                 expect(result).not.toBe(tool);
                 expect(result.description).toContain(SKYFIRE_TOOL_INSTRUCTIONS);
                 const props = result.inputSchema.properties as Record<string, unknown>;

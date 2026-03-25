@@ -158,8 +158,8 @@ export async function getMCPServersAsTools(
     mcpSessionId?: string,
 ): Promise<ToolEntry[]> {
     /**
-     * This is case for the Skyfire request without any Apify token, we do not support
-     * standby Actors in this case, so we can skip MCP servers since they would fail anyway (they are standby Actors).
+     * Payment providers that replace the Apify token have no token available.
+     * MCP servers (standby Actors) require a token, so skip them in this case.
     */
     if (apifyToken === null || apifyToken === undefined) {
         return [];

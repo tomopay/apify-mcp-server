@@ -15,7 +15,6 @@ import { actorNameToToolName } from './tools/utils.js';
 import type { ActorStore, ServerCard, ServerMode, ToolCategory, UiMode } from './types.js';
 import { parseUiMode, SERVER_MODES } from './types.js';
 import { parseCommaSeparatedList, parseQueryParamList, readJsonFile } from './utils/generic.js';
-import { redactSkyfirePayId } from './utils/logging.js';
 import { getExpectedToolNamesByCategories } from './utils/tool_categories_helpers.js';
 import { getToolPublicFieldOnly } from './utils/tools.js';
 import { TTLLRUCache } from './utils/ttl_lru.js';
@@ -52,8 +51,4 @@ export {
     parseQueryParamList,
     resolvePaymentProvider,
     type PaymentProvider,
-    /**
-     * @deprecated Use the server's paymentProvider.redactForLogging instead. This will be removed in a future release.
-     */
-    redactSkyfirePayId,
 };

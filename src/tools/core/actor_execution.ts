@@ -6,7 +6,7 @@ import type { ApifyClient } from '../../apify_client.js';
 import { TOOL_MAX_OUTPUT_CHARS } from '../../const.js';
 import type { ActorDefinitionStorage, DatasetItem } from '../../types.js';
 import { ensureOutputWithinCharLimit, getActorDefinitionStorageFieldNames } from '../../utils/actor.js';
-import { logHttpError, redactSkyfirePayId } from '../../utils/logging.js';
+import { logHttpError } from '../../utils/logging.js';
 import type { ProgressTracker } from '../../utils/progress.js';
 import type { JsonSchemaProperty } from '../../utils/schema_generation.js';
 import { generateSchemaFromItems } from '../../utils/schema_generation.js';
@@ -88,7 +88,7 @@ export async function callActorGetDataset(options: {
     ]);
 
     if (potentialAbortedRun === CLIENT_ABORT) {
-        log.info('Actor run aborted by client', { actorName, mcpSessionId, input: redactSkyfirePayId(input) });
+        log.info('Actor run aborted by client', { actorName, mcpSessionId, input });
         return null;
     }
     const completedRun = potentialAbortedRun as ActorRun;
