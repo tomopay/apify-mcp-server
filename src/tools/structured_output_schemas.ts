@@ -17,20 +17,6 @@ const developerSchema = {
 };
 
 /**
- * Schema for tiered pricing within an event
- */
-const eventTieredPricingSchema = {
-    type: 'array' as const, // Literal type required for MCP SDK type compatibility
-    items: {
-        type: 'object' as const, // Literal type required for MCP SDK type compatibility
-        properties: {
-            tier: { type: 'string' },
-            priceUsd: { type: 'number' },
-        },
-    },
-};
-
-/**
  * Schema for pricing events (PAY_PER_EVENT model)
  */
 const pricingEventsSchema = {
@@ -40,40 +26,25 @@ const pricingEventsSchema = {
         properties: {
             title: { type: 'string', description: 'Event title' },
             description: { type: 'string', description: 'Event description' },
-            priceUsd: { type: 'number', description: 'Price in USD' },
-            tieredPricing: eventTieredPricingSchema,
+            priceUsd: { type: 'number', description: 'Resolved price in USD for the user\'s plan tier' },
         },
     },
     description: 'Event-based pricing information',
 };
 
 /**
- * Schema for tiered pricing (general)
- */
-const tieredPricingSchema = {
-    type: 'array' as const, // Literal type required for MCP SDK type compatibility
-    items: {
-        type: 'object' as const, // Literal type required for MCP SDK type compatibility
-        properties: {
-            tier: { type: 'string', description: 'Tier name' },
-            pricePerUnit: { type: 'number', description: 'Price per unit for this tier' },
-        },
-    },
-    description: 'Tiered pricing information',
-};
-
-/**
- * Schema for pricing information
+ * Schema for pricing information.
+ * Prices are resolved to the user's plan tier — no tiered arrays in output.
  */
 export const pricingSchema = {
     type: 'object' as const, // Literal type required for MCP SDK type compatibility
     properties: {
         model: { type: 'string', description: 'Pricing model (FREE, PRICE_PER_DATASET_ITEM, FLAT_PRICE_PER_MONTH, PAY_PER_EVENT)' },
         isFree: { type: 'boolean', description: 'Whether the Actor is free to use' },
-        pricePerUnit: { type: 'number', description: 'Price per unit (for non-free models)' },
+        pricePerUnit: { type: 'number', description: 'Price per unit resolved to the user\'s plan tier' },
         unitName: { type: 'string', description: 'Unit name for pricing' },
         trialMinutes: { type: 'number', description: 'Trial period in minutes' },
-        tieredPricing: tieredPricingSchema,
+        resolvedForTier: { type: 'string', description: 'Plan tier this price was resolved for, or "base" as fallback' },
         events: pricingEventsSchema,
     },
     required: ['model', 'isFree'],

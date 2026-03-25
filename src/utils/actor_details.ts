@@ -5,7 +5,7 @@ import type { ApifyClient } from '../apify_client.js';
 import { HelperTools, TOOL_STATUS } from '../const.js';
 import { connectMCPClient } from '../mcp/client.js';
 import { filterSchemaProperties, shortenProperties } from '../tools/utils.js';
-import type { Actor, ActorCardOptions, ActorInputSchema, ActorStoreList, StructuredActorCard } from '../types.js';
+import type { Actor, ActorCardOptions, ActorInputSchema, ActorStoreList, PricingTier, StructuredActorCard } from '../types.js';
 import { getActorMcpUrlCached } from './actor.js';
 import { formatActorDetailsForWidget, formatActorToActorCard, formatActorToStructuredCard } from './actor_card.js';
 import { searchActorsByKeywords } from './actor_search.js';
@@ -87,6 +87,7 @@ export async function fetchActorDetails(
     apifyClient: ApifyClient,
     actorName: string,
     cardOptions?: ActorCardOptions,
+    userTier?: PricingTier | null,
 ): Promise<ActorDetailsResult | null> {
     try {
         const [actorInfo, buildInfo, storeActors]: [Actor | undefined, Build | undefined, ActorStoreList[]] = await Promise.all([
@@ -109,8 +110,8 @@ export async function fetchActorDetails(
         }) as ActorInputSchema;
         inputSchema.properties = filterSchemaProperties(inputSchema.properties);
         inputSchema.properties = shortenProperties(inputSchema.properties);
-        const actorCard = formatActorToActorCard(actorInfoWithPicture, cardOptions);
-        const actorCardStructured = formatActorToStructuredCard(actorInfoWithPicture, cardOptions);
+        const actorCard = formatActorToActorCard(actorInfoWithPicture, cardOptions, userTier);
+        const actorCardStructured = formatActorToStructuredCard(actorInfoWithPicture, cardOptions, userTier);
         return {
             actorInfo: actorInfoWithPicture,
             buildInfo,
@@ -132,7 +133,7 @@ export async function fetchActorDetails(
  * @param details - Raw actor details from fetchActorDetails
  * @returns Processed actor details with formatted content
  */
-export function processActorDetailsForResponse(details: ActorDetailsResult) {
+export function processActorDetailsForResponse(details: ActorDetailsResult, userTier?: PricingTier | null) {
     const actorUrl = `https://apify.com/${details.actorInfo.username}/${details.actorInfo.name}`;
     // Add link to README title
     const formattedReadme = details.readme.replace(/^# /, `# [README](${actorUrl}/readme): `);
@@ -150,7 +151,7 @@ export function processActorDetailsForResponse(details: ActorDetailsResult) {
 
     const structuredContent = {
         actorDetails: {
-            actorInfo: formatActorDetailsForWidget(details.actorInfo, actorUrl),
+            actorInfo: formatActorDetailsForWidget(details.actorInfo, actorUrl, userTier),
             actorCard: details.actorCard,
             readme: formattedReadme,
             inputSchema: details.inputSchema,

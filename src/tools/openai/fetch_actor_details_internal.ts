@@ -13,6 +13,7 @@ import {
 } from '../../utils/actor_details.js';
 import { compileSchema } from '../../utils/ajv.js';
 import { buildMCPResponse } from '../../utils/mcp.js';
+import { getUserPlanTierCached } from '../../utils/userid_cache.js';
 import { actorDetailsOutputSchema } from '../structured_output_schemas.js';
 
 const fetchActorDetailsInternalArgsSchema = z.object({
@@ -56,7 +57,8 @@ but the user did NOT explicitly ask for Actor details presentation.`,
         const resolvedOutput = resolveOutputOptions(parsed.output);
         const cardOptions = buildCardOptions(resolvedOutput);
 
-        const details = await fetchActorDetails(apifyClient, parsed.actor, cardOptions);
+        const userTier = await getUserPlanTierCached(apifyToken, apifyClient);
+        const details = await fetchActorDetails(apifyClient, parsed.actor, cardOptions, userTier);
         if (!details) {
             return buildActorNotFoundResponse(parsed.actor);
         }

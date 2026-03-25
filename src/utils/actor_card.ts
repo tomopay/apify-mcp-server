@@ -1,5 +1,5 @@
 import { APIFY_STORE_URL } from '../const.js';
-import type { Actor, ActorCardOptions, ActorStoreList, PricingInfo, StructuredActorCard } from '../types.js';
+import type { Actor, ActorCardOptions, ActorStoreList, PricingInfo, PricingTier, StructuredActorCard } from '../types.js';
 import { getCurrentPricingInfo, pricingInfoToString, pricingInfoToStructured, type StructuredPricingInfo } from './pricing_info.js';
 
 // Helper function to format categories from uppercase with underscores to proper case
@@ -32,6 +32,7 @@ export function formatActorToActorCard(
         includeRating: true,
         includeMetadata: true,
     },
+    userTier?: PricingTier | null,
 ): string {
     const actorFullName = `${actor.username}/${actor.name}`;
     const actorUrl = `${APIFY_STORE_URL}/${actorFullName}`;
@@ -52,11 +53,11 @@ export function formatActorToActorCard(
         let pricingInfo: string;
         if ('currentPricingInfo' in actor) {
             // ActorStoreList has currentPricingInfo
-            pricingInfo = pricingInfoToString(actor.currentPricingInfo);
+            pricingInfo = pricingInfoToString(actor.currentPricingInfo, userTier);
         } else {
             // Actor has pricingInfos array
             const currentPricingInfo = getCurrentPricingInfo(actor.pricingInfos || [], new Date());
-            pricingInfo = pricingInfoToString(currentPricingInfo);
+            pricingInfo = pricingInfoToString(currentPricingInfo, userTier);
         }
         markdownLines.push(`- **[Pricing](${actorUrl}/pricing):** ${pricingInfo}`);
     }
@@ -142,6 +143,7 @@ export function formatActorToStructuredCard(
         includeRating: true,
         includeMetadata: true,
     },
+    userTier?: PricingTier | null,
 ): StructuredActorCard {
     const actorFullName = `${actor.username}/${actor.name}`;
     const actorUrl = `${APIFY_STORE_URL}/${actorFullName}`;
@@ -181,7 +183,7 @@ export function formatActorToStructuredCard(
             pricingInfo = getCurrentPricingInfo(actor.pricingInfos, new Date());
         }
         // If pricingInfo is still null, it means the actor is free (no pricing info means free)
-        structuredData.pricing = pricingInfoToStructured(pricingInfo);
+        structuredData.pricing = pricingInfoToStructured(pricingInfo, userTier);
     }
 
     // Add metadata (deprecation warning)
@@ -285,6 +287,7 @@ export type WidgetActor = {
  */
 export function formatActorForWidget(
     actor: ActorStoreList,
+    userTier?: PricingTier | null,
 ): WidgetActor {
     return {
         id: actor.id,
@@ -300,7 +303,7 @@ export function formatActorForWidget(
             totalUsers: actor.stats?.totalUsers || 0,
         },
         url: `${APIFY_STORE_URL}/${actor.username}/${actor.name}`,
-        currentPricingInfo: pricingInfoToStructured(actor.currentPricingInfo),
+        currentPricingInfo: pricingInfoToStructured(actor.currentPricingInfo, userTier),
     };
 }
 
@@ -314,6 +317,7 @@ export function formatActorForWidget(
 export function formatActorDetailsForWidget(
     actor: Actor,
     actorUrl: string,
+    userTier?: PricingTier | null,
 ): WidgetActor {
     const currentPricingInfo = getCurrentPricingInfo(actor.pricingInfos || [], new Date());
 
@@ -331,6 +335,6 @@ export function formatActorDetailsForWidget(
             actorReviewRating: actor.stats?.actorReviewRating || 0,
             actorReviewCount: actor.stats?.actorReviewCount || 0,
         },
-        currentPricingInfo: pricingInfoToStructured(currentPricingInfo),
+        currentPricingInfo: pricingInfoToStructured(currentPricingInfo, userTier),
     };
 }

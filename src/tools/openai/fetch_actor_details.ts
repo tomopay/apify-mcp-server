@@ -9,6 +9,7 @@ import {
     resolveOutputOptions,
 } from '../../utils/actor_details.js';
 import { buildMCPResponse } from '../../utils/mcp.js';
+import { getUserPlanTierCached } from '../../utils/userid_cache.js';
 import {
     fetchActorDetailsMetadata,
     fetchActorDetailsToolArgsSchema,
@@ -28,12 +29,13 @@ export const openaiFetchActorDetails: ToolEntry = Object.freeze({
         const resolvedOutput = resolveOutputOptions(parsed.output);
         const cardOptions = buildCardOptions(resolvedOutput);
 
-        const details = await fetchActorDetails(apifyClient, parsed.actor, cardOptions);
+        const userTier = await getUserPlanTierCached(apifyToken, apifyClient);
+        const details = await fetchActorDetails(apifyClient, parsed.actor, cardOptions, userTier);
         if (!details) {
             return buildActorNotFoundResponse(parsed.actor);
         }
 
-        const { structuredContent: processedStructuredContent, actorUrl } = processActorDetailsForResponse(details);
+        const { structuredContent: processedStructuredContent, actorUrl } = processActorDetailsForResponse(details, userTier);
         const structuredContent = {
             actorInfo: details.actorCardStructured,
             inputSchema: details.inputSchema,

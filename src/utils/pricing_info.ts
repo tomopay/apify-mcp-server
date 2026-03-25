@@ -1,5 +1,5 @@
 import { ACTOR_PRICING_MODEL } from '../const.js';
-import type { ActorChargeEvent, PricingInfo } from '../types.js';
+import type { ActorChargeEvent, PricingInfo, PricingTier } from '../types.js';
 
 /**
  * Custom type to transform raw API pricing data into a clean, client-friendly format
@@ -11,18 +11,12 @@ export type StructuredPricingInfo = {
     pricePerUnit?: number;
     unitName?: string;
     trialMinutes?: number;
-    tieredPricing?: {
-        tier: string;
-        pricePerUnit: number;
-    }[];
+    /** The tier this price was resolved for (e.g. "BRONZE"), or "base" when falling back */
+    resolvedForTier?: string;
     events?: {
         title: string;
         description: string;
         priceUsd?: number;
-        tieredPricing?: {
-            tier: string;
-            priceUsd: number;
-        }[];
     }[];
 }
 
@@ -64,6 +58,41 @@ function convertMinutesToGreatestUnit(minutes: number): { value: number; unit: s
     return { value: Math.floor(minutes / (60 * 24)), unit: 'days' };
 }
 
+/** Resolve a single price from tiered pricing for the user's tier, with fallback to base price. */
+function resolveTieredUnitPrice(
+    tieredPricing: Record<string, { tieredPricePerUnitUsd: number }>,
+    userTier: PricingTier | null | undefined,
+    basePrice: number | undefined,
+): { price: number | undefined; label: string } {
+    if (userTier && tieredPricing[userTier]) {
+        return { price: tieredPricing[userTier].tieredPricePerUnitUsd, label: userTier };
+    }
+    return { price: basePrice, label: 'base' };
+}
+
+/** Resolve a single event price for the user's tier. */
+function resolveEventPrice(
+    event: ActorChargeEvent,
+    userTier: PricingTier | null | undefined,
+): { price: number | undefined; label: string } {
+    if (typeof event.eventPriceUsd === 'number') return { price: event.eventPriceUsd, label: '' };
+    if (event.eventTieredPricingUsd) {
+        if (userTier && event.eventTieredPricingUsd[userTier]) {
+            return { price: event.eventTieredPricingUsd[userTier]!.tieredEventPriceUsd, label: userTier };
+        }
+        const first = Object.values(event.eventTieredPricingUsd)[0];
+        return { price: first?.tieredEventPriceUsd, label: 'base' };
+    }
+    return { price: undefined, label: '' };
+}
+
+/** Short note appended to pricing strings when tier was resolved. */
+function tierNote(label: string): string {
+    if (!label) return '';
+    if (label === 'base') return ' (base price; see Actor pricing page for all tiers)';
+    return ` (your ${label} plan price)`;
+}
+
 /**
  * Formats the pay-per-event pricing information into a human-readable string.
  *
@@ -77,18 +106,17 @@ function convertMinutesToGreatestUnit(minutes: number): { value: number; unit: s
  * @param pricingPerEvent
  */
 
-function payPerEventPricingToString(pricingPerEvent: { actorChargeEvents: Record<string, ActorChargeEvent> } | undefined): string {
+function payPerEventPricingToString(
+    pricingPerEvent: { actorChargeEvents: Record<string, ActorChargeEvent> } | undefined,
+    userTier?: PricingTier | null,
+): string {
     if (!pricingPerEvent || !pricingPerEvent.actorChargeEvents) return 'Pricing information for events is not available.';
     const eventStrings: string[] = [];
     for (const event of Object.values(pricingPerEvent.actorChargeEvents)) {
+        const { price, label } = resolveEventPrice(event, userTier);
         let eventStr = `\t- **${event.eventTitle}**: ${event.eventDescription} `;
-        if (typeof event.eventPriceUsd === 'number') {
-            eventStr += `(Flat price: $${event.eventPriceUsd} per event)`;
-        } else if (event.eventTieredPricingUsd) {
-            const tiers = Object.entries(event.eventTieredPricingUsd)
-                .map(([tier, price]) => `${tier}: $${price.tieredEventPriceUsd}`)
-                .join(', ');
-            eventStr += `(Tiered pricing: ${tiers} per event)`;
+        if (price !== undefined) {
+            eventStr += `(Flat price: $${price} per event)${tierNote(label)}`;
         } else {
             eventStr += '(No price info)';
         }
@@ -97,7 +125,7 @@ function payPerEventPricingToString(pricingPerEvent: { actorChargeEvents: Record
     return `This Actor is paid per event. You are not charged for the Apify platform usage, but only a fixed price for the following events:\n${eventStrings.join('\n')}`;
 }
 
-export function pricingInfoToString(pricingInfo: PricingInfo | null): string {
+export function pricingInfoToString(pricingInfo: PricingInfo | null, userTier?: PricingTier | null): string {
     // If there is no pricing infos entries the Actor is free to use
     // based on https://github.com/apify/apify-core/blob/058044945f242387dde2422b8f1bef395110a1bf/src/packages/actor/src/paid_actors/paid_actors_common.ts#L691
     if (pricingInfo === null || pricingInfo.pricingModel === ACTOR_PRICING_MODEL.FREE) {
@@ -105,28 +133,23 @@ export function pricingInfoToString(pricingInfo: PricingInfo | null): string {
     }
     if (pricingInfo.pricingModel === ACTOR_PRICING_MODEL.PRICE_PER_DATASET_ITEM) {
         const customUnitName = pricingInfo.unitName !== 'result' ? pricingInfo.unitName : '';
-        // Handle tiered pricing if present
         if (pricingInfo.tieredPricing && Object.keys(pricingInfo.tieredPricing).length > 0) {
-            const tiers = Object.entries(pricingInfo.tieredPricing)
-                .map(([tier, obj]) => `${tier}: $${obj.tieredPricePerUnitUsd * 1000} per 1000 ${customUnitName || 'results'}`)
-                .join(', ');
-            return `This Actor charges per results${customUnitName ? ` (in this case named ${customUnitName})` : ''}; tiered pricing per 1000 ${customUnitName || 'results'}: ${tiers}.`;
+            const { price, label } = resolveTieredUnitPrice(pricingInfo.tieredPricing, userTier, pricingInfo.pricePerUnitUsd);
+            const per1000 = price !== undefined ? price * 1000 : 'N/A';
+            return `This Actor charges per results${customUnitName ? ` (in this case named ${customUnitName})` : ''}; the price per 1000 ${customUnitName || 'results'} is ${per1000} USD.${tierNote(label)}`;
         }
         return `This Actor charges per results${customUnitName ? ` (in this case named ${customUnitName})` : ''}; the price per 1000 ${customUnitName || 'results'} is ${pricingInfo.pricePerUnitUsd as number * 1000} USD.`;
     }
     if (pricingInfo.pricingModel === ACTOR_PRICING_MODEL.FLAT_PRICE_PER_MONTH) {
         const { value, unit } = convertMinutesToGreatestUnit(pricingInfo.trialMinutes || 0);
-        // Handle tiered pricing if present
         if (pricingInfo.tieredPricing && Object.keys(pricingInfo.tieredPricing).length > 0) {
-            const tiers = Object.entries(pricingInfo.tieredPricing)
-                .map(([tier, obj]) => `${tier}: $${obj.tieredPricePerUnitUsd} per month`)
-                .join(', ');
-            return `This Actor is rental and has tiered pricing per month: ${tiers}, with a trial period of ${value} ${unit}.`;
+            const { price, label } = resolveTieredUnitPrice(pricingInfo.tieredPricing, userTier, pricingInfo.pricePerUnitUsd);
+            return `This Actor is rental and has a flat price of ${price ?? 'N/A'} USD per month, with a trial period of ${value} ${unit}.${tierNote(label)}`;
         }
         return `This Actor is rental and has a flat price of ${pricingInfo.pricePerUnitUsd} USD per month, with a trial period of ${value} ${unit}.`;
     }
     if (pricingInfo.pricingModel === ACTOR_PRICING_MODEL.PAY_PER_EVENT) {
-        return payPerEventPricingToString(pricingInfo.pricingPerEvent);
+        return payPerEventPricingToString(pricingInfo.pricingPerEvent, userTier);
     }
     return 'Pricing information is not available.';
 }
@@ -135,7 +158,7 @@ export function pricingInfoToString(pricingInfo: PricingInfo | null): string {
  * Transform and normalize API response to match unstructured text output format
  * instead of just dumping raw API data - ensures consistency across structured & unstructured modes.
  */
-export function pricingInfoToStructured(pricingInfo: PricingInfo | null): StructuredPricingInfo {
+export function pricingInfoToStructured(pricingInfo: PricingInfo | null, userTier?: PricingTier | null): StructuredPricingInfo {
     const structuredPricing: StructuredPricingInfo = {
         model: pricingInfo?.pricingModel || ACTOR_PRICING_MODEL.FREE,
         isFree: !pricingInfo || pricingInfo.pricingModel === ACTOR_PRICING_MODEL.FREE,
@@ -146,43 +169,40 @@ export function pricingInfoToStructured(pricingInfo: PricingInfo | null): Struct
     }
 
     if (pricingInfo.pricingModel === ACTOR_PRICING_MODEL.PRICE_PER_DATASET_ITEM) {
-        structuredPricing.pricePerUnit = pricingInfo.pricePerUnitUsd || 0;
         structuredPricing.unitName = pricingInfo.unitName || 'result';
 
         if (pricingInfo.tieredPricing && Object.keys(pricingInfo.tieredPricing).length > 0) {
-            structuredPricing.tieredPricing = Object.entries(pricingInfo.tieredPricing).map(([tier, obj]) => ({
-                tier,
-                pricePerUnit: obj.tieredPricePerUnitUsd,
-            }));
+            const { price, label } = resolveTieredUnitPrice(pricingInfo.tieredPricing, userTier, pricingInfo.pricePerUnitUsd);
+            structuredPricing.pricePerUnit = price;
+            structuredPricing.resolvedForTier = label;
+        } else {
+            structuredPricing.pricePerUnit = pricingInfo.pricePerUnitUsd || 0;
         }
     } else if (pricingInfo.pricingModel === ACTOR_PRICING_MODEL.FLAT_PRICE_PER_MONTH) {
-        structuredPricing.pricePerUnit = pricingInfo.pricePerUnitUsd;
         structuredPricing.trialMinutes = pricingInfo.trialMinutes;
 
         if (pricingInfo.tieredPricing && Object.keys(pricingInfo.tieredPricing).length > 0) {
-            structuredPricing.tieredPricing = Object.entries(pricingInfo.tieredPricing).map(([tier, obj]) => ({
-                tier,
-                pricePerUnit: obj.tieredPricePerUnitUsd,
-            }));
+            const { price, label } = resolveTieredUnitPrice(pricingInfo.tieredPricing, userTier, pricingInfo.pricePerUnitUsd);
+            structuredPricing.pricePerUnit = price;
+            structuredPricing.resolvedForTier = label;
+        } else {
+            structuredPricing.pricePerUnit = pricingInfo.pricePerUnitUsd;
         }
     } else if (pricingInfo.pricingModel === ACTOR_PRICING_MODEL.PAY_PER_EVENT) {
         if (pricingInfo.pricingPerEvent?.actorChargeEvents) {
             const { actorChargeEvents } = pricingInfo.pricingPerEvent;
-            structuredPricing.events = Object.entries(actorChargeEvents).map(([, event]) => {
+            let resolvedLabel = '';
+            structuredPricing.events = Object.values(actorChargeEvents).map((event) => {
                 const actorEvent = event as ActorChargeEvent;
+                const { price, label } = resolveEventPrice(actorEvent, userTier);
+                if (label) resolvedLabel = label;
                 return {
                     title: actorEvent.eventTitle,
                     description: actorEvent.eventDescription || '',
-                    priceUsd: typeof actorEvent.eventPriceUsd === 'number' ? actorEvent.eventPriceUsd : undefined,
-                    tieredPricing: actorEvent.eventTieredPricingUsd
-                        ? Object.entries(actorEvent.eventTieredPricingUsd)
-                            .map(([tier, price]) => ({
-                                tier,
-                                priceUsd: price.tieredEventPriceUsd,
-                            }))
-                        : undefined,
+                    priceUsd: price,
                 };
             });
+            if (resolvedLabel) structuredPricing.resolvedForTier = resolvedLabel;
         }
     }
 

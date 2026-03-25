@@ -1,8 +1,10 @@
+import { ApifyClient } from '../../apify_client.js';
 import { HelperTools } from '../../const.js';
 import type { InternalToolArgs, ToolEntry } from '../../types.js';
 import { formatActorToActorCard, formatActorToStructuredCard } from '../../utils/actor_card.js';
 import { searchAndFilterActors } from '../../utils/actor_search.js';
 import { buildMCPResponse } from '../../utils/mcp.js';
+import { getUserPlanTierCached } from '../../utils/userid_cache.js';
 import {
     searchActorsArgsSchema,
     searchActorsMetadata,
@@ -38,7 +40,9 @@ You MUST retry with broader, more generic keywords - use just the platform name 
             return buildMCPResponse({ texts: [instructions], structuredContent });
         }
 
-        const structuredActorCards = actors.map((actor) => formatActorToStructuredCard(actor));
+        const userTier = await getUserPlanTierCached(apifyToken, new ApifyClient({ token: apifyToken ?? undefined }));
+
+        const structuredActorCards = actors.map((actor) => formatActorToStructuredCard(actor, undefined, userTier));
         const structuredContent = {
             actors: structuredActorCards,
             query: parsed.keywords,
@@ -47,7 +51,7 @@ You MUST retry with broader, more generic keywords - use just the platform name 
 IMPORTANT: You MUST always do a second search with broader, more generic keywords (e.g., just the platform name like "TikTok" instead of "TikTok posts") to make sure you haven't missed a better Actor.`,
         };
 
-        const actorCards = actors.map((actor) => formatActorToActorCard(actor));
+        const actorCards = actors.map((actor) => formatActorToActorCard(actor, undefined, userTier));
         const actorsText = actorCards.join('\n\n');
         const instructions = `
  # Search results:
