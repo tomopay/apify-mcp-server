@@ -50,8 +50,9 @@ You might have access to these resources during planning (paths marked "if avail
 | **MCP Apps SDK (types)** | `node_modules/@modelcontextprotocol/ext-apps`                     | MCP Apps types, React hooks, server helpers (compiled only) |
 | **MCP Apps SDK (source)** | `../ext-apps` (if available — search for it)                     | Examples, tests, spec, full source — faster than GitHub     |
 | **MCP Apps spec**      | `https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx` | MCP Apps extension specification                            |
-| **Dev server (no UI)** | `http://localhost:3001/mcp` / tools: `mcp__apify-dev__*`            | Test tools without widgets                                  |
-| **Dev server (UI)**    | `http://localhost:3001/mcp?ui=true` / tools: `mcp__apify-dev-ui__*` | Test tools with widget rendering                            |
+| **Dev server (no UI)** | `http://localhost:3001/mcp` / tools: `mcp__apify-dev__*`            | Test tools via direct MCP connection (local sessions only)  |
+| **Dev server (UI)**    | `http://localhost:3001/mcp?ui=true` / tools: `mcp__apify-dev-ui__*` | Test tools with widget rendering (local sessions only)      |
+| **mcpc stdio**         | `mcpc @stdio tools-call ...` (requires `npm run build`)             | Test tools — no running server needed                       |
 
 ## Step 3: Key conventions
 
@@ -62,6 +63,7 @@ Follow these when designing:
 - Integration tests go in `tests/integration/suite.ts`
 - Changes may affect `apify-mcp-server-internal` — always assess impact
 - Verification: `npm run type-check`, `npm run lint`, `npm run test:unit`
+- Live verification: `mcpc`** — after implementing, probe the real server to confirm behavior matches the spec. Use `@stdio` (requires `npm run build`, no running server needed). Use `@dev` only for widget/UI work (requires `npm run dev`).
 - See `CLAUDE.md`, `CONTRIBUTING.md`, and `DEVELOPMENT.md` for full conventions
 
 ## Step 4: Planning guidance
@@ -73,7 +75,7 @@ During planning, explore:
 3. **Internal repo dependencies** on affected modules (check `../apify-mcp-server-internal` if available)
 4. **MCP spec/SDK** if the feature involves protocol behavior
 5. **MCP Apps spec/SDK** if the feature involves widgets or interactive UIs — check both the spec and `node_modules/@modelcontextprotocol/ext-apps`
-6. Use `mcp__apify-dev__*` and `mcp__apify-dev-ui__*` tools to test current behavior if the dev servers are running
+6. Use `mcpc @stdio tools-call` to probe current behavior (run `npm run build` first), or use `mcp__apify-dev__*` / `mcp__apify-dev-ui__*` tools if the dev server is running locally
 
 Ask clarifying questions if the feature description is ambiguous. Prefer narrowing scope over guessing intent.
 
@@ -122,6 +124,11 @@ When planning is complete, exit planning mode with `ExitPlanMode`, then create a
 ### Integration tests
 - [Cases to add to tests/integration/suite.ts]
 
+### mcpc probing
+- [ ] `npm run build && mcpc @stdio restart`
+- [ ] Call the new/changed tools and confirm output matches the spec
+- [ ] Test edge cases: invalid input, non-existent resources, error messages
+
 ### Manual testing
 - [Steps using local dev servers, MCPJam, or ChatGPT]
 
@@ -129,6 +136,7 @@ When planning is complete, exit planning mode with `ExitPlanMode`, then create a
 - [ ] `npm run type-check` passes
 - [ ] `npm run lint` passes
 - [ ] `npm run test:unit` passes
+- [ ] mcpc probe confirms behavior matches spec
 - [ ] Internal repo impact assessed
 - [ ] No breaking changes (or coordinated)
 
