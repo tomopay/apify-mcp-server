@@ -78,9 +78,8 @@
     "vitest": "^3.0.8"
   },
   "scripts": {
-    "start": "npm run start:standby",
+    "start": "tsx src/main.ts",
     "dev": "node scripts/dev_standby.js",
-    "start:standby": "tsx src/main.ts",
     "build": "npm run build:core && npm run build:web",
     "build:core": "tsc -b src",
     "build:watch": "tsc -b src -w",
