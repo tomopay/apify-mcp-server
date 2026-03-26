@@ -1,5 +1,5 @@
 /*
- * Express server implementation used for standby Actor mode.
+ * Express server implementation for local development and testing.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -14,15 +14,23 @@ import express from 'express';
 import log from '@apify/log';
 import { parseBooleanOrNull } from '@apify/utilities';
 
-import { ApifyClient } from '../apify_client.js';
-import { ActorsMcpServer } from '../mcp/server.js';
-import type { ApifyRequestParams } from '../types.js';
-import { parseUiMode } from '../types.js';
-import { getHelpMessage, Routes, TransportType } from './const.js';
+import { ApifyClient } from './apify_client.js';
+import { ActorsMcpServer } from './mcp/server.js';
+import type { ApifyRequestParams } from './types.js';
+import { parseUiMode } from './types.js';
 
-export function createExpressApp(
-    host: string,
-): express.Express {
+enum TransportType {
+    HTTP = 'HTTP',
+    SSE = 'SSE',
+}
+
+enum Routes {
+    MCP = '/',
+    SSE = '/sse',
+    MESSAGE = '/message',
+}
+
+export function createExpressApp(): express.Express {
     const app = express();
     const mcpServers: { [sessionId: string]: ActorsMcpServer } = {};
     const transportsSSE: { [sessionId: string]: SSEServerTransport } = {};
@@ -287,7 +295,7 @@ export function createExpressApp(
 
     // Catch-all for undefined routes
     app.use((req: Request, res: Response) => {
-        res.status(404).json({ message: `There is nothing at route ${req.method} ${req.originalUrl}. ${getHelpMessage(host)}` }).end();
+        res.status(404).json({ message: `There is nothing at route ${req.method} ${req.originalUrl}.` }).end();
     });
 
     return app;
