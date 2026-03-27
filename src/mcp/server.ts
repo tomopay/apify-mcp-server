@@ -42,7 +42,6 @@ import {
     DEFAULT_TELEMETRY_ENV,
     HelperTools,
     SERVER_NAME,
-    SERVER_VERSION,
     TOOL_STATUS,
 } from '../const.js';
 import { prompts } from '../prompts/index.js';
@@ -53,7 +52,7 @@ import { getTelemetryEnv, trackToolCall } from '../telemetry.js';
 import { defaultActorExecutor } from '../tools/default/actor_executor.js';
 import { getActorsAsTools, getCategoryTools, getDefaultTools } from '../tools/index.js';
 import { openaiActorExecutor } from '../tools/openai/actor_executor.js';
-import { decodeDotPropertyNames } from '../tools/utils.js';
+import { decodeDotPropertyNames, legacyToolNameToNew } from '../tools/utils.js';
 import type {
     ActorExecutor,
     ActorMcpTool,
@@ -138,7 +137,7 @@ export class ActorsMcpServer {
         this.server = new Server(
             {
                 name: SERVER_NAME,
-                version: SERVER_VERSION,
+                version: getPackageVersion()!,
                 websiteUrl: APIFY_MCP_URL,
             },
             {
@@ -651,20 +650,11 @@ You can obtain your Apify token from https://console.apify.com/account/integrati
                 );
             }
 
-            // Claude is saving tool names with 'local__' prefix, name is local__apify-actors__compass-slash-crawler-google-places
-            // We are interested in the Actor name only, so we remove the 'local__apify-actors__' prefix
-            if (name.startsWith('local__')) {
-                // we split the name by '__' and take the last part, which is the actual Actor name
-                const parts = name.split('__');
-                log.debug('Tool name with prefix detected', { toolName: name, lastPart: parts[parts.length - 1], mcpSessionId });
-                if (parts.length > 1) {
-                    name = parts[parts.length - 1];
-                }
-            }
             // TODO - if connection is /mcp client will not receive notification on tool change
-            // Find tool by name or actor full name
+            // Find tool by name, actor full name, or legacy tool name (e.g. apify-slash-rag-web-browser → apify--rag-web-browser)
+            const newName = legacyToolNameToNew(name) ?? name;
             const tool = Array.from(this.tools.values())
-                .find((t) => t.name === name || (t.type === 'actor' && t.actorFullName === name));
+                .find((t) => t.name === newName || (t.type === 'actor' && t.actorFullName === newName));
             if (!tool) {
                 const availableTools = this.listToolNames();
                 const msg = `Tool "${name}" was not found.
