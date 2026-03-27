@@ -1,5 +1,6 @@
 /*
- * Express server implementation for local development and testing.
+ * Express HTTP server for local development and testing.
+ * This file is the entry point for `npm run dev` / `npm start`.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -308,3 +309,24 @@ function isInitializeRequest(body: unknown): boolean {
     }
     return typeof body === 'object' && body !== null && 'method' in body && body.method === 'initialize';
 }
+
+// --- Entry point: start the server when run directly ---
+
+if (!process.env.APIFY_TOKEN) {
+    log.error('APIFY_TOKEN is required but not set in the environment variables.');
+    process.exit(1);
+}
+
+const HOST = process.env.HOST ?? 'http://localhost';
+const PORT = Number(process.env.PORT ?? 3001);
+
+const app = createExpressApp();
+
+app.listen(PORT, () => {
+    log.info('MCP server listening', { host: HOST, port: PORT });
+});
+
+process.on('SIGINT', () => {
+    log.info('Received SIGINT, shutting down gracefully...');
+    process.exit(0);
+});
