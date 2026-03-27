@@ -1,9 +1,10 @@
 /*
  * Express HTTP server for local development and testing.
- * This file is the entry point for `npm run dev` / `npm start`.
+ * This file is the entry point for `npm start`.
  */
 
 import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 import { InMemoryTaskStore } from '@modelcontextprotocol/sdk/experimental/tasks/stores/in-memory.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
@@ -312,21 +313,23 @@ function isInitializeRequest(body: unknown): boolean {
 
 // --- Entry point: start the server when run directly ---
 
-if (!process.env.APIFY_TOKEN) {
-    log.error('APIFY_TOKEN is required but not set in the environment variables.');
-    process.exit(1);
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+    if (!process.env.APIFY_TOKEN) {
+        log.error('APIFY_TOKEN is required but not set in the environment variables.');
+        process.exit(1);
+    }
+
+    const HOST = process.env.HOST ?? 'http://localhost';
+    const PORT = Number(process.env.PORT ?? 3001);
+
+    const app = createExpressApp();
+
+    app.listen(PORT, () => {
+        log.info('MCP server listening', { host: HOST, port: PORT });
+    });
+
+    process.on('SIGINT', () => {
+        log.info('Received SIGINT, shutting down gracefully...');
+        process.exit(0);
+    });
 }
-
-const HOST = process.env.HOST ?? 'http://localhost';
-const PORT = Number(process.env.PORT ?? 3001);
-
-const app = createExpressApp();
-
-app.listen(PORT, () => {
-    log.info('MCP server listening', { host: HOST, port: PORT });
-});
-
-process.on('SIGINT', () => {
-    log.info('Received SIGINT, shutting down gracefully...');
-    process.exit(0);
-});

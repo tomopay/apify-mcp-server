@@ -30,7 +30,7 @@ Key entry points:
 - `src/index.ts` - Main library export (`ActorsMcpServer` class)
 - `src/index_internals.ts` - Internal exports for testing / advanced usage
 - `src/stdio.ts` - Standard input/output (CLI) entry point
-- `src/dev_server.ts` - Express HTTP server for local development (`npm run dev`)
+- `src/dev_server.ts` - Express HTTP server for local development (`npm start`)
 - `src/input.ts` - Input processing and validation
 
 ## Node.js version policy
