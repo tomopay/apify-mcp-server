@@ -152,6 +152,7 @@ jobs:
                     token: ${{ secrets.APIFY_SERVICE_ACCOUNT_GITHUB_TOKEN }}
                     commit-message: "chore: bump @apify/actors-mcp-server to ${{ needs.release_metadata.outputs.version_number }}"
                     branch: "release/${{ needs.release_metadata.outputs.tag_name }}"
+                    base: master
                     title: "chore: bump @apify/actors-mcp-server to ${{ needs.release_metadata.outputs.version_number }}"
                     body: |
                         Automated PR to bump `@apify/actors-mcp-server` to `${{ needs.release_metadata.outputs.version_number }}`.
