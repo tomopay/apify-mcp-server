@@ -144,7 +144,7 @@ The server requires a minimum transaction of $1.00 USD. The payment is tracked a
 
 **Prerequisites:**
 - A wallet funded with USDC on Base mainnet
-- The [`mcpc` CLI](https://github.com/apify/mcpc) (`npm install -g mcpc`)
+- The [`mcpc` CLI](https://github.com/apify/mcpc) (`npm install -g @apify/mcpc`)
 
 **Setup with `mcpc` CLI:**
 
