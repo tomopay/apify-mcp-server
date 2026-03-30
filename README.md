@@ -146,21 +146,9 @@ The server requires a minimum transaction of $1.00 USD. The payment is tracked a
 - A wallet funded with USDC on Base mainnet
 - The [`mcpc` CLI](https://github.com/apify/mcpc) (`npm install -g mcpc`)
 
-**Setup with the hosted server:**
-
-Enable x402 payment mode by adding the `payment=x402` query parameter to the Apify server URL:
-
-```json
-{
-  "mcpServers": {
-    "apify": {
-      "url": "https://mcp.apify.com?payment=x402"
-    }
-  }
-}
-```
-
 **Setup with `mcpc` CLI:**
+
+You can provide this `README.md` file to an AI agent, and once the wallet is funded, the agent will be able to autonomously pay for tools on the Apify MCP server (or any other MCP server supporting x402).
 
 The [`mcpc`](https://github.com/apify/mcpc) CLI has built-in x402 support. First, set up a wallet:
 
