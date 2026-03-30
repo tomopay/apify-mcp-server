@@ -138,19 +138,19 @@ The Apify MCP Server supports the [x402 payment protocol](https://www.x402.org/)
 1. The Apify MCP server advertises payment requirements in each paid tool's metadata.
 2. When `mcpc` calls a paid tool, it automatically detects the metadata, signs a USDC payment using your local wallet, and includes it in the request.
 3. The server verifies and settles the payment onchain, executes the Actor, and returns the results.
-4. If a tool is called without a payment, the server responds with HTTP 402 and `mcpc` signs and retries automatically.
+4. If a tool is called without a payment, the server responds that payment is required and `mcpc` signs and retries automatically.
 
 The server requires a minimum transaction of $1.00 USD. The payment is tracked as a balance on the server - subsequent tool calls draw from this balance without requiring a new onchain transaction. When the balance runs out, `mcpc` automatically signs a new payment to top it up. After a period of inactivity, any remaining unused balance is refunded to the client's wallet address on the Base blockchain.
 
 **Prerequisites:**
 - A wallet funded with USDC on Base mainnet
-- The [`mcpc` CLI](https://github.com/apify/mcpc) (`npm install -g @apify/mcpc`)
+- The [`mcpc` CLI](https://github.com/apify/mcp-cli) (`npm install -g @apify/mcpc`)
 
 **Setup with `mcpc` CLI:**
 
 You can provide this `README.md` file to an AI agent, and once the wallet is funded, the agent will be able to autonomously pay for tools on the Apify MCP server (or any other MCP server supporting x402).
 
-The [`mcpc`](https://github.com/apify/mcpc) CLI has built-in x402 support. First, set up a wallet:
+The [`mcpc`](https://github.com/apify/mcp-cli) CLI has built-in x402 support. First, set up a wallet:
 
 ```bash
 # Create a new wallet (generates a random private key)
