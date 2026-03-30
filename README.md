@@ -23,7 +23,7 @@ The Apify Model Context Protocol (MCP) server at [**mcp.apify.com**](https://mcp
 >
 > For the best experience, connect your AI assistant to our hosted server at **[`https://mcp.apify.com`](https://mcp.apify.com)**. The hosted server supports the latest features - including output schema inference for structured Actor results - that are not available when running locally via stdio.
 
-💰 The server also supports [Skyfire agentic payments](#-skyfire-agentic-payments), allowing AI agents to pay for Actor runs without an API token.
+💰 The server also supports [agentic payments](#-agentic-payments) via [x402](#-x402) and [Skyfire](#-skyfire), allowing AI agents to pay for Actor runs without an API token.
 
 Apify MCP Server is compatible with `Claude Code, Claude.ai, Cursor, VS Code` and any client that adheres to the Model Context Protocol.
 Check out the [MCP clients section](#-mcp-clients) for more details or visit the [MCP configuration page](https://mcp.apify.com).
@@ -36,7 +36,9 @@ Check out the [MCP clients section](#-mcp-clients) for more details or visit the
 - [⚠️ SSE transport deprecation](#%EF%B8%8F-sse-transport-deprecation)
 - [🤖 MCP clients](#-mcp-clients)
 - [🪄 Try Apify MCP instantly](#-try-apify-mcp-instantly)
-- [💰 Skyfire agentic payments](#-skyfire-agentic-payments)
+- [💰 Agentic payments](#-agentic-payments)
+  - [💸 x402](#-x402)
+  - [🔥 Skyfire](#-skyfire)
 - [🛠️ Tools, resources, and prompts](#%EF%B8%8F-tools-resources-and-prompts)
 - [📊 Telemetry](#-telemetry)
 - [🐛 Troubleshooting (local MCP server)](#-troubleshooting-local-mcp-server)
@@ -122,7 +124,78 @@ Just sign in with your Apify account and start experimenting with web scraping, 
 
 Or use the MCP bundle file (formerly known as Anthropic Desktop extension file, or DXT) for one-click installation: [Apify MCP Server MCPB file](https://github.com/apify/apify-mcp-server/releases/latest/download/apify-mcp-server.mcpb)
 
-# 💰 Skyfire agentic payments
+
+# 💰 Agentic payments
+
+The Apify MCP Server supports agentic payments, allowing AI agents to autonomously pay for Actor runs without requiring an Apify API token. Two payment integrations are available: **x402** (onchain payments) and **Skyfire**.
+
+## 💸 x402
+
+The Apify MCP Server supports the [x402 payment protocol](https://www.x402.org/) — an open standard for internet-native payments. The Apify MCP server implements an MCP extension of this protocol to support agentic payments. With x402, AI agents can autonomously pay for Actor runs using USDC on the [Base](https://base.org/) blockchain, without requiring an Apify API token.
+
+**How it works:**
+
+1. The Apify MCP server advertises payment requirements in each paid tool's metadata.
+2. When `mcpc` calls a paid tool, it automatically detects the metadata, signs a USDC payment using your local wallet, and includes it in the request.
+3. The server verifies and settles the payment onchain, executes the Actor, and returns the results.
+4. If a tool is called without a payment, the server responds with HTTP 402 and `mcpc` signs and retries automatically.
+
+The server requires a minimum transaction of $1.00 USD. The payment is tracked as a balance on the server - subsequent tool calls draw from this balance without requiring a new onchain transaction. When the balance runs out, `mcpc` automatically signs a new payment to top it up. After a period of inactivity, any remaining unused balance is refunded to the client's wallet address on the Base blockchain.
+
+**Prerequisites:**
+- A wallet funded with USDC on Base mainnet
+- The [`mcpc` CLI](https://github.com/apify/mcpc) (`npm install -g mcpc`)
+
+**Setup with the hosted server:**
+
+Enable x402 payment mode by adding the `payment=x402` query parameter to the Apify server URL:
+
+```json
+{
+  "mcpServers": {
+    "apify": {
+      "url": "https://mcp.apify.com?payment=x402"
+    }
+  }
+}
+```
+
+**Setup with `mcpc` CLI:**
+
+The [`mcpc`](https://github.com/apify/mcpc) CLI has built-in x402 support. First, set up a wallet:
+
+```bash
+# Create a new wallet (generates a random private key)
+mcpc x402 init
+
+# Or import an existing wallet from a private key
+mcpc x402 import <private-key>
+
+# Verify your wallet address
+mcpc x402 info
+```
+
+Then connect to the Apify MCP Server with x402 enabled:
+
+```bash
+# Connect with x402 payment support
+mcpc connect "mcp.apify.com?payment=x402" @apify --x402
+
+# Tool calls that require payment are handled automatically
+mcpc @apify tools-call call-actor actor:="apify/rag-web-browser" input:='{"query": "latest AI news"}'
+```
+
+**Key differences from Skyfire:**
+- **x402** uses direct onchain payments (USDC) — no intermediary PAY tokens needed.
+- **x402** is an open standard — any network or token can be supported.
+- Payment verification and settlement are handled via metadata detection and inline within the HTTP request/response cycle.
+
+To learn more, see the [x402 specification](https://www.x402.org/).
+
+
+
+## 🔥 Skyfire
+
 
 The Apify MCP Server integrates with [Skyfire](https://www.skyfire.xyz/) to enable agentic payments - AI agents can autonomously pay for Actor runs without requiring an Apify API token. Instead of authenticating with `APIFY_TOKEN`, the agent uses Skyfire PAY tokens to cover billing for each tool call.
 
@@ -160,6 +233,7 @@ When Skyfire mode is enabled, the agent handles the full payment flow autonomous
 4. Results are returned as usual. Unused funds on the token remain available for future runs or are returned upon expiration.
 
 To learn more, see the [Skyfire integration documentation](https://docs.apify.com/platform/integrations/skyfire) and the [Agentic Payments with Skyfire](https://blog.apify.com/agentic-payments-skyfire/) blog post.
+
 
 # 🛠️ Tools, resources, and prompts
 
