@@ -20,6 +20,10 @@ on:
                 required: false
                 type: string
                 default: ""
+            trigger_internal_release:
+                description: Automatically trigger a release PR in the internal repository after the bump PR is merged
+                type: boolean
+                default: false
 
 permissions:
     id-token: write
@@ -125,12 +129,14 @@ jobs:
         runs-on: ubuntu-latest
         env:
             GH_TOKEN: ${{ secrets.APIFY_SERVICE_ACCOUNT_GITHUB_TOKEN }}
+            PR_BASE: ${{ inputs.trigger_internal_release == true && 'master' || 'develop' }}
         steps:
             -   name: Checkout internal repo
                 uses: actions/checkout@v6
                 with:
                     repository: apify/apify-mcp-server-internal
                     token: ${{ secrets.APIFY_SERVICE_ACCOUNT_GITHUB_TOKEN }}
+                    ref: ${{ env.PR_BASE }}
             -   name: Use Node.js
                 uses: actions/setup-node@v6
                 with:
@@ -152,7 +158,7 @@ jobs:
                     token: ${{ secrets.APIFY_SERVICE_ACCOUNT_GITHUB_TOKEN }}
                     commit-message: "chore: bump @apify/actors-mcp-server to ${{ needs.release_metadata.outputs.version_number }}"
                     branch: "release/${{ needs.release_metadata.outputs.tag_name }}"
-                    base: master
+                    base: ${{ env.PR_BASE }}
                     title: "chore: bump @apify/actors-mcp-server to ${{ needs.release_metadata.outputs.version_number }}"
                     body: |
                         Automated PR to bump `@apify/actors-mcp-server` to `${{ needs.release_metadata.outputs.version_number }}`.
