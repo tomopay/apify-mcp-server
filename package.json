@@ -15,7 +15,8 @@
     "./manifest.json": "./manifest.json"
   },
   "bin": {
-    "actors-mcp-server": "./dist/stdio.js"
+    "actors-mcp-server": "./dist/stdio.js",
+    "actors-mcp-server-pay": "./dist/stdio_pay.js"
   },
   "files": [
     "dist",
@@ -26,10 +27,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/apify/apify-mcp-server.git"
+    "url": "https://github.com/tomopay/apify-mcp-server.git"
   },
   "bugs": {
-    "url": "https://github.com/apify/apify-mcp-server/issues"
+    "url": "https://github.com/tomopay/apify-mcp-server/issues"
   },
   "homepage": "https://mcp.apify.com",
   "keywords": [
@@ -37,7 +38,10 @@
     "mcp",
     "server",
     "actors",
-    "model context protocol"
+    "model context protocol",
+    "payments",
+    "x402",
+    "mpp"
   ],
   "dependencies": {
     "@apify/datastructures": "^2.0.3",
@@ -47,6 +51,7 @@
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@segment/analytics-node": "^2.3.0",
     "@sentry/node": "^10.38.0",
+    "@tomopay/gateway": "^0.1.1",
     "ajv": "^8.17.1",
     "algoliasearch": "^5.31.0",
     "apify": "^3.4.2",
@@ -83,6 +88,7 @@
     "start": "npm run start:standby",
     "dev": "node scripts/dev_standby.js",
     "start:standby": "APIFY_META_ORIGIN=\"STANDBY\" tsx src/main.ts",
+    "start:pay": "APIFY_META_ORIGIN=\"STANDBY\" tsx src/stdio_pay.ts",
     "build": "npm run build:core && npm run build:web",
     "build:core": "tsc -b src",
     "build:watch": "tsc -b src -w",
