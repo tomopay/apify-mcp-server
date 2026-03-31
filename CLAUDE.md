@@ -1,5 +1,7 @@
 # Apify MCP server
 
+> **Note:** `AGENTS.md` is a symlink to this file (`CLAUDE.md`). Please edit `CLAUDE.md` to update the agent instructions.
+
 MCP server that exposes [Apify Actors](https://apify.com/store) as tools for AI assistants.
 
 The codebase is built with TypeScript using ES modules and follows a modular architecture with clear separation of concerns.
@@ -106,3 +108,7 @@ it('should do something awesome', async () => {
 - **[DEVELOPMENT.md](./DEVELOPMENT.md)** — project structure, setup, build system, hot-reload workflow, manual MCP testing
 - **[DESIGN_SYSTEM_AGENT_INSTRUCTIONS.md](./DESIGN_SYSTEM_AGENT_INSTRUCTIONS.md)** — UI widget design system rules (read this when doing any UI/widget work)
 - **[res/](./res/index.md)** — architecture analyses, refactor plans, and protocol references (MCP tasks, SDK features, tool mode separation, etc.)
+
+## Available Skills
+
+- **markdown-writing**: Use this skill when writing or editing `.md` documentation files (like `README.md`, `DEVELOPMENT.md`, `CONTRIBUTING.md`). It contains the preferred tone, structure, formatting, and naming conventions for the Apify MCP Server project.
